@@ -17,7 +17,7 @@ class LunarGIS:
         self.dock = None
 
     def initGui(self):
-        icon_path = Path(__file__).resolve().parent.parent / "resources" / "icon.svg"
+        icon_path = Path(__file__).resolve().parent / "resources" / "icon.svg"
         self.action = QAction(QIcon(str(icon_path)), "Lunar GIS", self.iface.mainWindow())
         self.action.setCheckable(True)
         self.action.triggered.connect(self.toggle_dock)

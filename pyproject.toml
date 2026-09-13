@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lunar-gis"
-version = "0.1.0"
+dynamic = ["version"]
 description = "AI-assisted GIS research, analysis, data discovery, provenance, and automatic cartography for QGIS"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,5 +15,11 @@ authors = [{ name = "Lunar Corp" }]
 testpaths = ["tests"]
 addopts = "-q"
 
-[tool.setuptools]
-packages = ["lunar_gis"]
+[tool.setuptools.packages.find]
+include = ["lunar_gis*"]
+
+[tool.setuptools.package-data]
+lunar_gis = ["metadata.txt", "resources/*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "lunar_gis.__version__.__version__" }
