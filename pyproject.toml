@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,8 +8,9 @@ dynamic = ["version"]
 description = "AI-assisted GIS research, analysis, data discovery, provenance, and automatic cartography for QGIS"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-2.0-or-later" }
+license = "GPL-2.0-or-later"
 authors = [{ name = "Lunar Corp" }]
+license-files = ["LICENSE*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -19,7 +20,7 @@ addopts = "-q"
 include = ["lunar_gis*"]
 
 [tool.setuptools.package-data]
-lunar_gis = ["metadata.txt", "resources/*"]
+lunar_gis = ["metadata.txt", "resources/*", "LICENSE*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "lunar_gis.__version__.__version__" }

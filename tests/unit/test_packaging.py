@@ -140,7 +140,9 @@ def test_pyproject_package_discovery():
     find = data.get("tool", {}).get("setuptools", {}).get("packages", {}).get("find", {})
     assert find.get("include") == ["lunar_gis*"]
     package_data = data.get("tool", {}).get("setuptools", {}).get("package-data", {})
-    assert package_data.get("lunar_gis") == ["metadata.txt", "resources/*"]
+    assert package_data.get("lunar_gis") == ["metadata.txt", "resources/*", "LICENSE*"]
+    # License-files should be under [project] (PEP 639) — check correct location
+    assert data.get("project", {}).get("license-files") == ["LICENSE*"]
     # Ensure old single-package flat list removed — packages must be a dict with find, not a list
     packages_raw = data.get("tool", {}).get("setuptools", {}).get("packages")
     assert isinstance(packages_raw, dict) and "find" in packages_raw, "packages should be find dict, not flat list"
