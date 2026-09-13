@@ -1,0 +1,6 @@
+# opencode local toolchain — do not commit node_modules
+node_modules/
+package.json
+package-lock.json
+bun.lock
+*.log
