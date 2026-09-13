@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/plugins/lunar_gis">
+    <file>resources/icon.svg</file>
+  </qresource>
+</RCC>

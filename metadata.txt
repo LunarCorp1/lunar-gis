@@ -1,0 +1,18 @@
+[general]
+name=Lunar GIS
+qgisMinimumVersion=4.0
+qgisMaximumVersion=4.99
+description=AI-assisted GIS research, deterministic spatial analysis, data discovery, provenance, and automatic cartography.
+version=0.1.0
+author=Lunar Corp
+email=contact@lunarcorp.site
+about=Lunar GIS is an AI-assisted QGIS plugin focused on research workflows, safe tool execution, spatial decision support, provenance, and automated cartography.
+repository=https://github.com/LunarB/lunar-gis
+tracker=https://github.com/LunarB/lunar-gis/issues
+source=https://github.com/LunarB/lunar-gis
+homepage=https://lunarcorp.site
+category=Analysis
+icon=resources/icon.svg
+experimental=True
+deprecated=False
+tags=AI,GIS,PyQGIS,analysis,cartography,research
