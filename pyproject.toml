@@ -12,9 +12,23 @@ license = "GPL-2.0-or-later"
 authors = [{ name = "Lunar Corp" }]
 license-files = ["LICENSE*"]
 
+[project.optional-dependencies]
+dev = [
+    "build",
+    "mypy>=1.10",
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.8",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "unit: fast offline unit tests",
+    "integration: integration tests requiring fixtures",
+    "qgis: tests requiring QGIS runtime",
+]
 
 [tool.setuptools.packages.find]
 include = ["lunar_gis*"]
@@ -24,3 +38,40 @@ lunar_gis = ["metadata.txt", "resources/*", "LICENSE*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "lunar_gis.__version__.__version__" }
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+exclude = ["build", "dist", ".opencode", ".pytest_cache", ".venv", "htmlcov", "lunar_gis.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = false
+show_error_codes = true
+exclude = "build|dist|\\.opencode|\\.venv|\\.pytest_cache|\\.ruff_cache|htmlcov|__pycache__|.*\\.egg-info"
+
+[[tool.mypy.overrides]]
+module = "qgis.*"
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["lunar_gis"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 20
+
+[tool.coverage.html]
+directory = "htmlcov"

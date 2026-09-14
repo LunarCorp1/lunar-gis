@@ -19,3 +19,8 @@ dist/
 # OpenCode defense-in-depth (nested .gitignore already covers, keep explicit)
 .opencode/node_modules/
 .opencode/*.log
+
+# coverage / mypy / ruff caches
+.coverage
+coverage.xml
+htmlcov/

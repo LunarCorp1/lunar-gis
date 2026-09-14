@@ -2,7 +2,6 @@
 
 import configparser
 import re
-import sys
 import zipfile
 from pathlib import Path
 
@@ -46,7 +45,7 @@ def test_version_single_source():
     version_file = LUNAR / "__version__.py"
     assert version_file.exists()
     text = version_file.read_text(encoding="utf-8")
-    assert 'import qgis' not in text.lower()
+    assert "import qgis" not in text.lower()
     # Extract version via regex
     m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', text)
     assert m, "could not parse __version__"
@@ -63,12 +62,15 @@ def test_version_single_source():
     with open(ROOT / "pyproject.toml", "rb") as f:
         data = tomllib.load(f)
     assert "version" in data.get("project", {}).get("dynamic", []), "project.dynamic must contain version"
-    assert data.get("tool", {}).get("setuptools", {}).get("dynamic", {}).get("version", {}).get("attr") == "lunar_gis.__version__.__version__"
+    assert (
+        data.get("tool", {}).get("setuptools", {}).get("dynamic", {}).get("version", {}).get("attr")
+        == "lunar_gis.__version__.__version__"
+    )
     # ensure no static version under [project]
     assert "version" not in data.get("project", {}), "project.version should be absent when dynamic"
     # also keep substring guard for readability
     pyproject_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'lunar_gis.__version__' in pyproject_text
+    assert "lunar_gis.__version__" in pyproject_text
 
 
 def test_metadata_exists_canonical_and_root_sync():
