@@ -50,3 +50,4 @@ Existing ADRs 0001–0003 predate this template and use `Decision/Rationale/Cons
 | ADR-0004 | Module Boundaries | Accepted 2026-09-13 |
 | ADR-0005 | Build and Toolchain | Accepted 2026-09-13 |
 | ADR-0006 | Quality Gate (ruff / mypy / coverage) | Accepted 2026-09-14 |
+| ADR-0007 | Security and Supply-Chain Hardening | Accepted 2026-09-14 |

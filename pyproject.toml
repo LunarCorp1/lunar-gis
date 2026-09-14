@@ -14,6 +14,7 @@ license-files = ["LICENSE*"]
 
 [project.optional-dependencies]
 dev = [
+    "bandit[toml]>=1.7",
     "build",
     "mypy>=1.10",
     "pytest>=8",
@@ -75,3 +76,7 @@ fail_under = 40
 
 [tool.coverage.html]
 directory = "htmlcov"
+
+[tool.bandit]
+exclude_dirs = ["tests", "build", "dist"]
+skips = []

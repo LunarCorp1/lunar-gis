@@ -7,6 +7,8 @@ on:
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,3 +30,25 @@ jobs:
         run: python -m build
       - name: Verify QGIS plugin ZIP structure
         run: python -m pytest tests/unit/test_packaging.py::test_qgis_plugin_zip_structure -q
+
+  security-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]  # bandit[toml]>=1.7 via pyproject.toml optional-dependencies, single source
+      - name: Bandit scan
+        run: bandit -c pyproject.toml -r lunar_gis -f screen
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v3.5.0  # pinned v3 (Node24, not EOL v2); pin to SHA via Dependabot later
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

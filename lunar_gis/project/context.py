@@ -38,7 +38,7 @@ class ProjectContext:
             try:
                 crs_authid = layer.crs().authid()
             except Exception:
-                pass
+                crs_authid = None  # defensive: invalid CRS or SIP error
             summaries.append(
                 LayerSummary(
                     layer_id=layer.id(),
