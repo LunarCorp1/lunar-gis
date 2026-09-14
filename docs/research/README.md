@@ -1,10 +1,11 @@
-# docs/research — reserved for M6 Research Mode
+# docs/research — Research Mode (M6) + Reuse Audits
 
-This directory is intentionally empty until milestone M6.
+This directory is reserved primarily for M6 Research Mode, but holds milestone reuse audits as an exception.
 
-In M6 it will contain:
-* research objective and study-area templates
-* criteria identification and data-sufficiency checklists
-* methodology and reproducibility notes
+* **M1 audit:** `M1-OSS-REUSE-AUDIT.md` — Phase 1 open-source GIS/AI reuse & build-vs-integrate audit (research only, not M6 templates). See `docs/adr/README.md` lifecycle.
+* In M6 it will additionally contain:
+  * research objective and study-area templates
+  * criteria identification and data-sufficiency checklists
+  * methodology and reproducibility notes
 
-Until then, do not implement. See `docs/architecture/MILESTONES.md` (M6).
+Until M6, do not implement Research Mode features. See `docs/architecture/MILESTONES.md` (M6) and `docs/adr/ADR-0004-module-boundaries.md` phase gates.
