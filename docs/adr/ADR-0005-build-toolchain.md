@@ -15,7 +15,7 @@ Record the toolchain as implemented and verified:
 
 | Area | Decision | Key file / evidence |
 |------|----------|---------------------|
-| **Python compat** | `requires-python >=3.10` (QGIS 4 bundles 3.12, CI currently 3.14, QGIS minimum 4.0) — floor stays 3.10 for CI breadth, not 3.12, to keep `str | None` syntax valid since 3.10 | `pyproject.toml:10`, `tests` run 3.14 |
+| **Python compat** | `requires-python >=3.10` (QGIS 4 bundles 3.12, CI `python 3.10`, QGIS minimum 4.0) — floor stays 3.10 for CI breadth, not 3.12, to keep `str | None` syntax valid since 3.10 | `pyproject.toml:10`, `tests` run 3.14 locally, CI 3.10 |
 | **Build backend** | `setuptools>=80` `setuptools.build_meta` | `pyproject.toml:2` — required for `project.license-files` + `License-Expression` (PEP 639) |
 | **Package discovery** | `include = ["lunar_gis*"]` via `tool.setuptools.packages.find` (replaces flat `packages = ["lunar_gis"]`) | `pyproject.toml:19`, `test_pyproject_package_discovery` |
 | **Dynamic version** | Single source `lunar_gis/__version__.py:3` `__version__ = "0.1.0"` → `project.dynamic = ["version"]` + `tool.setuptools.dynamic.version.attr = "lunar_gis.__version__.__version__"` | `test_version_single_source`, `test_installed_version_matches_metadata` |
@@ -40,5 +40,5 @@ Record the toolchain as implemented and verified:
 * Version bump is edit of `lunar_gis/__version__.py` only; `metadata.txt` files and `importlib.metadata.version("lunar-gis")` follow via dynamic attr and byte-equality test.
 * Empty modules stay importable (`import lunar_gis.ai`) and appear in sdist/wheel and QGIS ZIP without code.
 * Dual LICENSE ensures `pip` (`dist-info/licenses/LICENSE`) and QGIS (`lunar_gis/LICENSE`) satisfy GPL §1 and `plugins.qgis.org` reviewer.
-* Build remains reproducible: `python -m build` + `twine check` + `pytest` gate in `.github/workflows/ci.yml` (currently `pytest -q` on 3.11; future add `python -m build` smoke).
+* Build remains reproducible: `python -m build` + `pytest --cov --cov-fail-under=40` + `ruff`/`mypy` gate in `.github/workflows/ci.yml` (`quality-gate` on `python 3.10`); `twine check` future.
 * No redesign: future milestones keep this toolchain; any change (e.g., ruff/mypy, `requires-python` bump) needs a new ADR.

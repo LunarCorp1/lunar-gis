@@ -21,7 +21,7 @@ Add a reproducible quality gate, documented as the single source for local/CI pa
 | **Coverage (amended P0-T08)** | `fail_under = 40` — raised defensibly after `tests/fixtures/qgis_fakes.py` + `tests/unit/test_context.py` (17 tests) + `test_registry.py` expansion brought `project/context.py` 24%→100% and `agent/registry.py` 92%→100%, total 24%→44% (44.44% branch, 122 stmts). Threshold 40 leaves 4.44pp buffer; next raise to 50-60 only after QGIS harness can cover `plugin.py` | `pyproject.toml:74`, `pytest --cov --cov-fail-under=40` |
 | **Pytest markers** | `unit/integration/qgis` with `--strict-markers --strict-config` | `pyproject.toml:26`, `tests` remain `16` offline unit tests |
 | **Dev deps** | `project.optional-dependencies.dev = [build,mypy,pytest,pytest-cov,ruff]` dev-only, runtime empty | `pyproject.toml:15` |
-| **CI** | `quality-gate` job on `ubuntu-latest` `python 3.10` (aligns `requires-python >=3.10`): `pip install -e .[dev]` → `ruff check` → `ruff format --check` → `mypy lunar_gis` → `pytest --cov ... --cov-fail-under=20` → `python -m build` → `pytest test_qgis_plugin_zip_structure` | `.github/workflows/ci.yml` |
+| **CI** | `quality-gate` job on `ubuntu-latest` `python 3.10` (aligns `requires-python >=3.10`): `pip install -e .[dev]` → `ruff check` → `ruff format --check` → `mypy lunar_gis` → `pytest --cov ... --cov-fail-under=40` → `python -m build` → `pytest test_qgis_plugin_zip_structure` | `.github/workflows/ci.yml` |
 
 Single source for `fail_under` is `pyproject.toml`; CI/README mirror it but must not diverge.
 
@@ -35,7 +35,7 @@ Single source for `fail_under` is `pyproject.toml`; CI/README mirror it but must
 
 ## Consequences
 
-* Local `ruff check . && ruff format --check . && mypy lunar_gis && pytest --cov --cov-fail-under=20 -q && python -m build` reproduces CI; documented in `README.md: Quality gate`.
+* Local `ruff check . && ruff format --check . && mypy lunar_gis && pytest --cov --cov-fail-under=40 -q && python -m build` reproduces CI; documented in `README.md: Quality gate`.
 * Coverage will rise defensibly after `P0-T08` (FakeLayer/FakeProject) without lowering threshold; ADR-0005 toolchain table is extended by this gate.
 * Any `requires-python` or gate change needs a new ADR per `docs/adr/README.md` lifecycle.
 
