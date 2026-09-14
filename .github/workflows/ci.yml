@@ -23,7 +23,7 @@ jobs:
       - name: Mypy
         run: mypy lunar_gis
       - name: Pytest with coverage
-        run: pytest --cov=lunar_gis --cov-report=term-missing --cov-report=xml --cov-fail-under=20 -q
+        run: pytest --cov=lunar_gis --cov-report=term-missing --cov-report=xml --cov-fail-under=40 -q
       - name: Build package
         run: python -m build
       - name: Verify QGIS plugin ZIP structure

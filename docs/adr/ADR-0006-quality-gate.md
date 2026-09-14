@@ -18,6 +18,7 @@ Add a reproducible quality gate, documented as the single source for local/CI pa
 | **Ruff** | `ruff>=0.8` `select = ["E","F"]` `target-version = py310` `line-length = 120` `exclude = ["build","dist",".opencode",".pytest_cache",".venv","htmlcov","lunar_gis.egg-info"]` + `format quote-style double` | `pyproject.toml:42`, `ruff check .` + `ruff format --check .` clean on `3ba4667` after removing unused `sys` in `test_packaging.py` |
 | **Mypy** | `mypy>=1.10` `python_version = 3.10` `ignore_missing_imports = false` + override `qgis.*` `ignore_missing_imports = true`, `warn_return_any = true`, `exclude = "build|dist|\\.opencode|\\.venv|..."` — only `qgis.*` silenced, not all third-party typos | `pyproject.toml:54`, `mypy lunar_gis` `Success: no issues found in 15 source files` |
 | **Coverage** | `pytest-cov>=5` `source = ["lunar_gis"]` `branch = true` `omit = ["*/tests/*"]` `fail_under = 20` (single-sourced in `pyproject.toml`, mirrored in CI/README). Baseline `24%` branch (`23.61%`) measured 2026-09-14 at `3ba4667` (122 stmts, 22 branches) — intentionally below baseline to avoid artificial `plugin.py` tests; raise to 40-60 after P0-T08 Fakes | `pyproject.toml:66`, `pytest --cov --cov-fail-under=20` |
+| **Coverage (amended P0-T08)** | `fail_under = 40` — raised defensibly after `tests/fixtures/qgis_fakes.py` + `tests/unit/test_context.py` (17 tests) + `test_registry.py` expansion brought `project/context.py` 24%→100% and `agent/registry.py` 92%→100%, total 24%→44% (44.44% branch, 122 stmts). Threshold 40 leaves 4.44pp buffer; next raise to 50-60 only after QGIS harness can cover `plugin.py` | `pyproject.toml:74`, `pytest --cov --cov-fail-under=40` |
 | **Pytest markers** | `unit/integration/qgis` with `--strict-markers --strict-config` | `pyproject.toml:26`, `tests` remain `16` offline unit tests |
 | **Dev deps** | `project.optional-dependencies.dev = [build,mypy,pytest,pytest-cov,ruff]` dev-only, runtime empty | `pyproject.toml:15` |
 | **CI** | `quality-gate` job on `ubuntu-latest` `python 3.10` (aligns `requires-python >=3.10`): `pip install -e .[dev]` → `ruff check` → `ruff format --check` → `mypy lunar_gis` → `pytest --cov ... --cov-fail-under=20` → `python -m build` → `pytest test_qgis_plugin_zip_structure` | `.github/workflows/ci.yml` |
@@ -37,3 +38,7 @@ Single source for `fail_under` is `pyproject.toml`; CI/README mirror it but must
 * Local `ruff check . && ruff format --check . && mypy lunar_gis && pytest --cov --cov-fail-under=20 -q && python -m build` reproduces CI; documented in `README.md: Quality gate`.
 * Coverage will rise defensibly after `P0-T08` (FakeLayer/FakeProject) without lowering threshold; ADR-0005 toolchain table is extended by this gate.
 * Any `requires-python` or gate change needs a new ADR per `docs/adr/README.md` lifecycle.
+
+## Addendum 2026-09-14 — P0-T08
+
+Coverage threshold raised `20 → 40` after meaningful branch coverage (see amended row). No other gate changes. Baseline now `44%` total (`44.44%` branch) at `3e34a10` + P0-T08 fakes. Next raise to 50-60 only after `lunar_gis/plugin.py` can be covered via future QGIS harness — do not lower threshold.

@@ -71,7 +71,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 20
+fail_under = 40
 
 [tool.coverage.html]
 directory = "htmlcov"

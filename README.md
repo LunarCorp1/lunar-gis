@@ -39,7 +39,7 @@ mypy lunar_gis
 # tests (offline deterministic, no QGIS)
 pytest -q
 # with coverage (threshold documented below)
-pytest --cov=lunar_gis --cov-report=term-missing --cov-report=xml --cov-fail-under=20 -q
+pytest --cov=lunar_gis --cov-report=term-missing --cov-report=xml --cov-fail-under=40 -q
 
 # build/package verification
 python -m build
@@ -49,10 +49,10 @@ pytest tests/unit/test_packaging.py::test_qgis_plugin_zip_structure -q
 Complete local gate (same as CI):
 
 ```bash
-ruff check . && ruff format --check . && mypy lunar_gis && pytest --cov=lunar_gis --cov-report=term-missing --cov-fail-under=20 -q && python -m build
+ruff check . && ruff format --check . && mypy lunar_gis && pytest --cov=lunar_gis --cov-report=term-missing --cov-fail-under=40 -q && python -m build
 ```
 
-**Coverage baseline:** 24% total (23.61% branch) measured 2026-09-14 at `3ba4667` (122 stmts, 22 branches, `lunar_gis/__init__.py` 33%, `agent/registry.py` 92% branch, `project/context.py` 24% branch, `plugin.py` 0% — not yet covered, will rise in P0-T08). Threshold `fail_under = 20` is intentionally below baseline to prevent silent regression without demanding artificial tests; raise defensibly after P0-T08 (target 40-60%). `fail_under` is single-sourced in `pyproject.toml:fail_under` and mirrored in CI/README — do not lower.
+**Coverage baseline:** 44% total (44.44% branch) measured 2026-09-14 at `3e34a10` + `P0-T08` fakes (122 stmts, 22 branches, `lunar_gis/__init__.py` 33%, `agent/registry.py` 100%, `project/context.py` 100%, `plugin.py` 0% — still not covered, will rise only with QGIS harness). Previous baseline at `3ba4667` was 24% (23.61% branch). Threshold raised from `20` → `40` defensibly after covering `project/context` defensive branches and `registry` sorted/unknown-tool paths with meaningful tests (not artificial); next raise target 50-60 after future harness can cover `plugin.py`. `fail_under` is single-sourced in `pyproject.toml:fail_under` and mirrored in CI/README — do not lower.
 
 ## License
 
