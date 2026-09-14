@@ -4,7 +4,7 @@ Use when designing structured tool requests, schemas, or `ToolRegistry`/`ToolSpe
 
 ## When to use
 
-* Editing `lunar_gis/agent/registry.py` or defining `ToolSpec(name, version, risk, handler)`
+* Editing `lunar_gis/agent/registry.py` or defining `ToolSpec(name, version, risk, handler=None, input_schema={}, output_schema={}, description="")`
 * Adding `project.list_layers` etc. before M1 validation/permission/audit
 
 ## Must do

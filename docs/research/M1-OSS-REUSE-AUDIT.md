@@ -351,6 +351,8 @@ lunar_gis/
 
 Current `lunar_gis/agent/registry.py` `ToolSpec(name,version,risk,handler)` is **sufficient as long-term abstraction boundary** *iff* extended as:
 
+> **Note:** The planned extension below was implemented in M1-T02 (commit `feat: implement tool contract and registry`). See `docs/adr/ADR-0008-tool-contracts.md` for the accepted design decisions. The implementation uses frozen dataclasses with custom schema validation (no `jsonschema` dependency) and JSON boundary enforcement via `_reject_non_json_values`.
+
 ```python
 @dataclass(frozen=True): ToolSpec(name, version, risk, handler: Callable[..., Any] | None = None, input_schema: dict | None = None, output_schema: dict | None = None, description: str = "")  # additive defaults, existing 4-arg construction remains valid; registry validates input_schema via jsonschema before handler
 ToolInput  — validated JSON against input_schema
