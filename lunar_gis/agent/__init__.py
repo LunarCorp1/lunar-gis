@@ -1,1 +1,1 @@
-"""Safe tool-registry and governance contracts package."""
+"""Safe tool-registry, governance, and controlled-execution contracts package."""

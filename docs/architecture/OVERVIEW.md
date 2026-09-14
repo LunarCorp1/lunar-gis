@@ -29,11 +29,17 @@ AI planner (later)
     ↓
 Versioned structured tool request
     ↓
-Schema validation
-    ↓
 Permission check
     ↓
+Schema validation
+    ↓
+Confirmation check
+    ↓
+Audit intent (fail-closed)
+    ↓
 Deterministic Lunar tool
+    ↓
+Audit outcome
     ↓
 PyQGIS / QGIS Processing / GDAL
     ↓

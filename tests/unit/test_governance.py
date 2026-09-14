@@ -202,6 +202,22 @@ class TestAuditRecord:
         d = r.to_dict()
         assert "session_id" not in d
         assert "success" not in d
+        assert "error" not in d
+
+    def test_to_dict_includes_error_field(self) -> None:
+        r = AuditRecord(
+            event_type="tool_execution_failed",
+            timestamp=0.0,
+            tool_name="a.b",
+            tool_version=ToolVersion(),
+            risk=ToolRisk.READ,
+            permission=PermissionDecision.ALLOW,
+            confirmation=ConfirmationDecision.NOT_REQUIRED,
+            reason="ok",
+            error="handler failed",
+        )
+        d = r.to_dict()
+        assert d["error"] == "handler failed"
 
     def test_json_serializable(self) -> None:
         r = AuditRecord(
@@ -585,6 +601,14 @@ class TestPolicyEngine:
         record = engine.audit(decision)
         assert record.session_id is None
         assert record.success is None
+        assert record.error is None
+
+    def test_audit_record_with_error(self) -> None:
+        engine = PolicyEngine()
+        decision = engine.evaluate(_spec(risk="medium"), _ctx())
+        record = engine.audit(decision, success=False, error="handler blew up")
+        assert record.success is False
+        assert record.error == "handler blew up"
 
     def test_engine_does_not_execute_handler(self) -> None:
         call_count = 0

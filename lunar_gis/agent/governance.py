@@ -1,7 +1,8 @@
 """Tool governance layer: permission, confirmation, and audit contracts.
 
 This module establishes deterministic permission, confirmation, and audit
-policies that sit between the Tool Contract/Registry and any future executor.
+policies that sit between the Tool Contract/Registry and the
+ControlledExecutor.
 
 Permission and confirmation are separate concerns:
   - permission = ALLOW does not imply confirmation has occurred
@@ -114,6 +115,7 @@ class AuditRecord:
     reason: str
     session_id: str | None = None
     success: bool | None = None
+    error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -130,6 +132,8 @@ class AuditRecord:
             result["session_id"] = self.session_id
         if self.success is not None:
             result["success"] = self.success
+        if self.error is not None:
+            result["error"] = self.error
         return result
 
 
@@ -283,7 +287,7 @@ class PolicyEngine:
     """Orchestrates permission and confirmation policies into a combined decision.
 
     Pure/deterministic: no side effects, no execution, no network, no QGIS GUI.
-    The future executor will consume the PolicyDecision.
+    The ControlledExecutor consumes the PolicyDecision.
     """
 
     def __init__(
@@ -325,6 +329,7 @@ class PolicyEngine:
         event_type: str = "policy_evaluation",
         session_id: str | None = None,
         success: bool | None = None,
+        error: str | None = None,
     ) -> AuditRecord:
         """Create an audit record from a policy decision."""
         return AuditRecord(
@@ -338,4 +343,5 @@ class PolicyEngine:
             reason=decision.reason,
             session_id=session_id,
             success=success,
+            error=error,
         )
