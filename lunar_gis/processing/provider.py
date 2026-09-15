@@ -15,6 +15,7 @@ from typing import Any
 from qgis.core import QgsProcessingProvider
 
 from lunar_gis.processing.ahp_algorithm import AHPAlgorithm
+from lunar_gis.processing.sensitivity_algorithm import AHPSensitivityAlgorithm
 
 
 class LunarGISProvider(QgsProcessingProvider):
@@ -22,6 +23,7 @@ class LunarGISProvider(QgsProcessingProvider):
 
     def loadAlgorithms(self) -> None:
         self.addAlgorithm(AHPAlgorithm())
+        self.addAlgorithm(AHPSensitivityAlgorithm())
 
     def id(self) -> str:  # noqa: A003
         return "lunar_gis"
