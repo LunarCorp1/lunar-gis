@@ -1,4 +1,5 @@
 """Lunar GIS — analysis: deterministic GIS/mathematical analysis.
 
-Contains the deterministic AHP core engine (ahp) and tool adapter (tools).
+Contains the deterministic AHP core engine (ahp), tool adapter (tools),
+and sensitivity analysis engine (sensitivity).
 """
