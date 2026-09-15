@@ -53,8 +53,8 @@ M2-T01 identified sensitivity analysis as part of M2 scope. M2-T04 deferred it t
 ### 2.4 What this means
 
 - M2 delivers: `ahp()` → `AHPResult` (done)
-- M3 delivers: `sensitivity_ahp()` → `SensitivityResult` (to be implemented)
-- The `analysis` module will gain a new file `sensitivity.py` in M3
+- M3 delivers: `sensitivity_ahp()` → `SensitivityResult` (implemented)
+- The `analysis` module gained a new file `sensitivity.py` in M3
 - No changes to `ahp.py`, `tools.py`, or `processing/` in M2
 
 ---
@@ -357,24 +357,6 @@ When a pairwise perturbation produces a matrix with `REVISE_REQUIRED` consistenc
 **The result is reported but flagged.** Specifically:
 
 1. All results are computed and included in the output
-2. Each `CriterionSensitivity` includes a `consistency_flags: list[str]` field tracking the consistency flag at each perturbation step
-3. Steps with `REVISE_REQUIRED` are flagged but NOT excluded
-4. The baseline result remains the reference for ranking comparison
-5. Downstream consumers must explicitly check consistency flags
-
-**Rationale:**
-- Excluding inconsistent results would create gaps in the sensitivity curve
-- The user needs to see that some perturbations produce inconsistent judgments
-- The consistency flag is metadata, not a filter
-- This matches how Expert Choice and other AHP tools handle this case
-
-### 9.2 Design decision
-
-When a pairwise perturbation produces a matrix with `REVISE_REQUIRED` consistency:
-
-**The result is reported but flagged.** Specifically:
-
-1. All results are computed and included in the output
 2. Each `CriterionSensitivity` includes `consistency_flags` and `consistency_ratios` fields tracking consistency at each perturbation step
 3. Steps with `REVISE_REQUIRED` are flagged but NOT excluded
 4. The baseline result remains the reference for ranking comparison
@@ -488,13 +470,13 @@ The sensitivity module calls `ahp()` repeatedly with perturbed inputs. It does N
 
 The `ahp()` function is treated as a black box: matrix → weights.
 
-### 12.4 ToolSpec integration (deferred)
+### 12.4 ToolSpec integration
 
-In M3, a `SENSITIVITY_TOOL_SPEC` can be added to `tools.py` following the same pattern as `AHP_TOOL_SPEC`. This is deferred to M3 implementation.
+Implemented in M3-T02. A `SENSITIVITY_TOOL_SPEC` (name `analysis.ahp_sensitivity`, v1.0.0, risk=LOW) was added to `lunar_gis/analysis/sensitivity_tools.py` following the same pattern as `AHP_TOOL_SPEC`.
 
-### 12.5 Processing integration (deferred)
+### 12.5 Processing integration
 
-In M3+, a `SensitivityAlgorithm` can be added to `lunar_gis/processing/`. This is deferred.
+Implemented in M3-T03. An `AHPSensitivityAlgorithm(QgsProcessingAlgorithm)` was added to `lunar_gis/processing/sensitivity_algorithm.py` and registered in the `lunar_gis` Processing provider. The algorithm is a thin orchestration layer over `sensitivity_ahp()` — it parses JSON inputs, delegates to the deterministic engine, and serializes results to JSON and HTML outputs. The engine is atomic and does not provide progress/cancellation callbacks (see §16.1 for the architectural decision).
 
 ---
 
@@ -642,7 +624,7 @@ All existing quality gates apply:
 5. **M3-T01:** Write 35+ tests
 6. **M3-T02:** Add `SENSITIVITY_TOOL_SPEC` to `tools.py`
 7. **M3-T02:** Add sensitivity handler and registration
-8. **M3-T03:** Add Processing algorithm with progress/cancellation support (`feedback.setProgress()`, `feedback.isCanceled()`)
+8. **M3-T03:** Add Processing algorithm (`AHPSensitivityAlgorithm`) — thin JSON-parse → `sensitivity_ahp()` → serialize. The deterministic engine is atomic; no progress/cancellation callbacks. This is an intentional architectural decision: the engine runs to completion on bounded input (max 10 criteria × 100 steps). Future progress/cancellation support, if needed for larger inputs, requires a separately scoped design/implementation task.
 
 ### 16.2 API design
 

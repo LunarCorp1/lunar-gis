@@ -230,6 +230,14 @@ class TestDeterminism:
 
 # ===========================================================================
 # QGIS-dependent tests (require QGIS 4 runtime)
+#
+# NOTE: _serialize_result() and _build_html() in sensitivity_algorithm.py
+# are module-level functions that do not use QGIS internally, but they reside
+# in a module with top-level QGIS imports (qgis.core). They cannot be imported
+# or tested without a QGIS runtime. The QGIS-dependent tests below cover
+# algorithm metadata, provider registration, and security regression.
+# Direct unit tests for _serialize_result and _build_html require QGIS and
+# are skipped in standard CI. This is a known QGIS-runtime testing limitation.
 # ===========================================================================
 
 
