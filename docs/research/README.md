@@ -4,6 +4,7 @@ This directory is reserved primarily for M6 Research Mode, but holds milestone r
 
 * **M1 audit:** `M1-OSS-REUSE-AUDIT.md` — Phase 1 open-source GIS/AI reuse & build-vs-integrate audit (research only, not M6 templates). See `docs/adr/README.md` lifecycle.
 * **M2 audit:** `M2-AHP-METHODOLOGY-AND-OSS-AUDIT.md` — AHP methodology definition (Saaty scale, principal-eigenvector canonical method, CI/CR ≤ 0.10, Saaty RI table) + OSS reuse audit (research only, no AHP implementation). See `docs/adr/README.md` lifecycle.
+* **M2 design:** `M2-SENSITIVITY-ANALYSIS-DESIGN.md` — AHP sensitivity analysis methodology, mathematical contract, OSS audit, and implementation design (M2-T05, research/design only, no implementation).
 * In M6 it will additionally contain:
   * research objective and study-area templates
   * criteria identification and data-sufficiency checklists
