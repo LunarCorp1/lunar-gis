@@ -1,5 +1,6 @@
 import hashlib
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -229,7 +230,7 @@ class TestValidationShapeSize:
     def test_n0_via_empty_criteria(self) -> None:
         with pytest.raises(AHPError) as exc:
             ahp([], [[1]])
-        assert exc.value.code in (AHPErrorCode.NON_SQUARE_MATRIX, AHPErrorCode.UNSUPPORTED_MATRIX_SIZE)
+        assert exc.value.code == AHPErrorCode.NON_SQUARE_MATRIX
 
 
 # ===========================================================================
@@ -262,8 +263,7 @@ class TestValidationCriteria:
     def test_criteria_not_list(self) -> None:
         with pytest.raises(AHPError) as exc:
             ahp("ab", [[1]])  # type: ignore[arg-type]
-        # Could be NON_SQUARE or EMPTY; but criteria must be list/tuple
-        assert exc.value.code in (AHPErrorCode.EMPTY_CRITERION_NAME, AHPErrorCode.NON_SQUARE_MATRIX)
+        assert exc.value.code == AHPErrorCode.EMPTY_CRITERION_NAME
 
 
 # ===========================================================================
@@ -483,28 +483,16 @@ class TestConsistencyClassification:
             assert res.consistency.ci == 0.0
 
     def test_acceptable_with_warning_exists(self) -> None:
-        # Need a matrix with 0.10 < CR <= 0.20
-        # Use a moderately inconsistent matrix: tweak EX1
-        # Search for a matrix in 4x4 range? Use brute mental: try matrix with one inconsistent judgment
-        # For test, just verify the classification logic via a synthetic CR
-        # Instead, find a real matrix that yields warning: we can brute search small
-        found = None
-        for trial in [
-            [[1, 2, 5, 7], [0.5, 1, 3, 5], [0.2, 1 / 3, 1, 3], [1 / 7, 0.2, 1 / 3, 1]],
-            [[1, 3, 5, 7], [1 / 3, 1, 2, 5], [0.2, 0.5, 1, 3], [1 / 7, 0.2, 1 / 3, 1]],
-        ]:
-            criteria = [f"c{i}" for i in range(4)]
-            try:
-                res = ahp(criteria, trial)  # type: ignore[arg-type]
-                if res.consistency.flag == ConsistencyFlag.ACCEPTABLE_WITH_WARNING:
-                    found = res
-                    break
-            except AHPError:
-                continue
-        # If not found, at least test the enum exists and logic is correct via direct calculation
-        assert ConsistencyFlag.ACCEPTABLE_WITH_WARNING is not None
-        if found is not None:
-            assert 0.10 < found.consistency.cr <= 0.20 + FLOAT_COMPARE_EPS
+        # Known 3x3 matrix yielding CR ≈ 0.1797 (in (0.10, 0.20])
+        # Source: manually constructed moderately inconsistent reciprocal matrix
+        mat = [[1, 7, 1 / 5], [1 / 7, 1, 1 / 9], [5, 9, 1]]
+        res = ahp(["a", "b", "c"], mat)
+        assert res.consistency.flag == ConsistencyFlag.ACCEPTABLE_WITH_WARNING
+        assert 0.10 < res.consistency.cr <= 0.20 + FLOAT_COMPARE_EPS
+        assert res.consistency.trivial_consistency is False
+        # Weights are still valid
+        assert sum(res.weights) == pytest.approx(1.0, abs=1e-9)
+        assert all(w > 0 for w in res.weights)
 
 
 # ===========================================================================
@@ -635,3 +623,36 @@ class TestSecurityRegression:
             text = f.read()
         assert "import numpy" not in text
         assert "import scipy" not in text
+
+
+# ===========================================================================
+# Fault-injected numerical error paths
+# ===========================================================================
+
+
+@pytest.mark.unit
+class TestNumericalErrorPaths:
+    def test_convergence_failure_via_iteration_cap(self) -> None:
+        """Force NUMERICAL_CONVERGENCE_FAILURE by capping iterations at 1."""
+        criteria, matrix = _ex1()
+        with patch("lunar_gis.analysis.ahp.POWER_MAX_ITER", 1):
+            with pytest.raises(AHPError) as exc:
+                ahp(criteria, matrix)
+            assert exc.value.code == AHPErrorCode.NUMERICAL_CONVERGENCE_FAILURE
+
+    def test_result_validation_failure_via_matvec_injection(self) -> None:
+        """Force NUMERICAL_RESULT_VALIDATION_FAILURE by injecting zeros in Aw.
+
+        After convergence, _priority_vector_and_iterations checks that the
+        residual ||Aw - λw||∞ < RESIDUAL_TOL. By replacing _matvec with a
+        function that returns zeros, the residual check will fail.
+        """
+        criteria, matrix = _ex1()
+
+        def _zero_matvec(m, v):  # type: ignore[no-untyped-def]
+            return [0.0] * len(v)
+
+        with patch("lunar_gis.analysis.ahp._matvec", side_effect=_zero_matvec):
+            with pytest.raises(AHPError) as exc:
+                ahp(criteria, matrix)
+            assert exc.value.code == AHPErrorCode.NUMERICAL_RESULT_VALIDATION_FAILURE

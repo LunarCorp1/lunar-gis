@@ -3,12 +3,32 @@
 Pure stdlib, no QGIS/LLM/network/filesystem. Implements the
 methodology frozen in docs/research/M2-AHP-METHODOLOGY-AND-OSS-AUDIT.md.
 
-Public API:
+Public API (functions):
   - ahp(criteria, matrix) -> AHPResult
   - validate_ahp_input(criteria, matrix) -> None (raises AHPError)
 
-Error taxonomy is deterministic; first failure wins in validation order:
-  shape -> size -> criteria -> diagonal -> numeric -> scale -> reciprocity.
+Public types (frozen dataclasses / enums):
+  - AHPResult          -- weights + consistency + math provenance
+  - ConsistencyReport  -- lambda_max, ci, ri, cr, flag, trivial_consistency
+  - ConsistencyFlag    -- ACCEPTABLE | ACCEPTABLE_WITH_WARNING | REVISE_REQUIRED
+  - AHPError           -- exception with stable AHPErrorCode
+  - AHPErrorCode       -- 11 codes (9 validation + 2 numerical)
+
+Error taxonomy (deterministic, first failure wins):
+  Validation: shape -> size -> criteria -> diagonal -> numeric -> scale -> reciprocity
+  Numerical:  NUMERICAL_CONVERGENCE_FAILURE, NUMERICAL_RESULT_VALIDATION_FAILURE
+
+Consistency classification (n >= 3, with FLOAT_COMPARE_EPS = 1e-9):
+  ACCEPTABLE              -- CR <= 0.10 + eps
+  ACCEPTABLE_WITH_WARNING -- 0.10 + eps < CR <= 0.20 + eps
+  REVISE_REQUIRED         -- CR > 0.20 + eps
+  n < 3: always ACCEPTABLE with trivial_consistency = true
+
+Deterministic guarantees (M2-AHP §11):
+  Same input -> byte-identical output; no RNG; no timestamps in math results.
+
+Provenance fields (M2-AHP §12): method, engine_version, numerical_policy_version,
+  display_precision, input_hash (SHA-256), iteration_count.
 """
 
 from __future__ import annotations
