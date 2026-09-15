@@ -181,7 +181,7 @@ Included as a secondary method because:
 ### 6.1 Constants
 
 ```python
-NEAR_TIE_TOL = 1e-6        # weight distance below which two criteria are "near-tied"
+NEAR_TIE_TOL = 1e-6  # weight distance below which two criteria are "near-tied"
 SENSITIVITY_POLICY_VERSION = "1.0"
 RANKING_POLICY_VERSION = "1.0"
 ```
@@ -192,12 +192,13 @@ RANKING_POLICY_VERSION = "1.0"
 @dataclass(frozen=True)
 class SensitivityInput:
     """Input for AHP sensitivity analysis."""
-    criteria: list[str]                          # n criterion names
-    matrix: list[list[float]]                    # n×n reciprocal pairwise matrix
-    method: SensitivityMethod                     # OAT_WEIGHT or OAT_PAIRWISE
-    perturbation_range: tuple[float, float]       # (min_delta, max_delta) absolute offsets
-    num_steps: int                                # number of sweep steps (≥ 5)
-    target_criteria: list[str] | None = None      # subset to analyze (None = all)
+
+    criteria: list[str]  # n criterion names
+    matrix: list[list[float]]  # n×n reciprocal pairwise matrix
+    method: SensitivityMethod  # OAT_WEIGHT or OAT_PAIRWISE
+    perturbation_range: tuple[float, float]  # (min_delta, max_delta) absolute offsets
+    num_steps: int  # number of sweep steps (≥ 5)
+    target_criteria: list[str] | None = None  # subset to analyze (None = all)
 ```
 
 **Constraints:**
@@ -215,20 +216,23 @@ The complete data model (consolidated from all sections):
 @dataclass(frozen=True)
 class CriterionSensitivity:
     """Sensitivity result for a single criterion."""
+
     criterion: str
     baseline_weight: float
-    stability_lower: float                        # lower bound of stability interval
-    stability_upper: float                        # upper bound of stability interval
-    crossover_points: list[float]                 # perturbation values where ranking changes
-    perturbation_values: list[float]              # sampled perturbation values
-    perturbed_weights: list[list[float]]          # weights at each perturbation step
-    perturbed_rankings: list[list[int]]           # rankings at each perturbation step
-    consistency_flags: list[str]                  # consistency flag at each step
-    consistency_ratios: list[float]               # CR at each step
+    stability_lower: float  # lower bound of stability interval
+    stability_upper: float  # upper bound of stability interval
+    crossover_points: list[float]  # perturbation values where ranking changes
+    perturbation_values: list[float]  # sampled perturbation values
+    perturbed_weights: list[list[float]]  # weights at each perturbation step
+    perturbed_rankings: list[list[int]]  # rankings at each perturbation step
+    consistency_flags: list[str]  # consistency flag at each step
+    consistency_ratios: list[float]  # CR at each step
+
 
 @dataclass(frozen=True)
 class SensitivityResult:
     """Complete sensitivity analysis result."""
+
     criteria: list[str]
     baseline_weights: list[float]
     baseline_ranking: list[int]
@@ -236,13 +240,13 @@ class SensitivityResult:
     method: SensitivityMethod
     numerical_policy_version: str
     engine_version: str
-    input_hash: str                               # SHA-256 of {criteria, matrix}
+    input_hash: str  # SHA-256 of {criteria, matrix}
     perturbation_range: tuple[float, float]
     num_steps: int
     target_criteria: list[str] | None
     ranking_policy_version: str
     consistency_policy_version: str
-    near_ties: list[tuple[str, str]]              # pairs of criteria with near-equal weights
+    near_ties: list[tuple[str, str]]  # pairs of criteria with near-equal weights
 ```
 
 ### 6.3 Ranking output format
@@ -423,14 +427,14 @@ Monte Carlo methods are explicitly excluded from the first implementation. If Mo
 @dataclass(frozen=True)
 class SensitivityResult:
     # ... result fields ...
-    numerical_policy_version: str                 # "1.0" (same as ahp.py)
-    engine_version: str                           # same as ahp.py
-    input_hash: str                               # SHA-256 of baseline matrix JSON
-    method: str                                   # "OAT_WEIGHT" or "OAT_PAIRWISE"
+    numerical_policy_version: str  # "1.0" (same as ahp.py)
+    engine_version: str  # same as ahp.py
+    input_hash: str  # SHA-256 of baseline matrix JSON
+    method: str  # "OAT_WEIGHT" or "OAT_PAIRWISE"
     perturbation_range: tuple[float, float]
     num_steps: int
-    ranking_policy_version: str                   # "1.0"
-    consistency_policy_version: str               # "1.0"
+    ranking_policy_version: str  # "1.0"
+    consistency_policy_version: str  # "1.0"
 ```
 
 ### 11.2 Version constants
@@ -645,10 +649,11 @@ All existing quality gates apply:
 ```python
 # lunar_gis/analysis/sensitivity.py
 
+
 def sensitivity_ahp(
     criteria: list[str],
     matrix: list[list[float]],
-    method: str = "OAT_WEIGHT",           # or "OAT_PAIRWISE"
+    method: str = "OAT_WEIGHT",  # or "OAT_PAIRWISE"
     perturbation_range: tuple[float, float] = (-0.3, 0.3),
     num_steps: int = 20,
     target_criteria: list[str] | None = None,
