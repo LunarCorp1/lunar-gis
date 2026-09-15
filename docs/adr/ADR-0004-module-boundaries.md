@@ -35,7 +35,7 @@ Keep the bounded layout as 10 regular packages with docstring-only `__init__.py`
 
 `resources/` is **not a package** (no `__init__.py`); it is package-data under `lunar_gis/resources/icon.svg` accessed via `Path(__file__).parent / "resources"` and `importlib.resources` (verified in `test_icon_accessible_via_importlib_resources`).
 
-Top-level `processing/` (tracked via `processing/.gitkeep`) is not a package and is not discovered by `tool.setuptools.packages.find`; the future QGIS Processing provider will live at `lunar_gis/processing/` (M3/M9) and this sentinel preserves git tracking.
+Top-level `processing/` is not a package and is not discovered by `tool.setuptools.packages.find`. The QGIS Processing provider lives at `lunar_gis/processing/` (introduced in M2 for AHP; extended in M3/M9 for additional algorithms).
 
 ## Alternatives considered
 

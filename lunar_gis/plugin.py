@@ -5,7 +5,9 @@ from pathlib import Path
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QAction, QDockWidget, QLabel, QVBoxLayout, QWidget
-from qgis.core import QgsProject
+from qgis.core import QgsApplication, QgsProject
+
+from lunar_gis.processing.provider import LunarGISProvider
 
 
 class LunarGIS:
@@ -15,6 +17,7 @@ class LunarGIS:
         self.iface = iface
         self.action = None
         self.dock = None
+        self.provider = None
 
     def initGui(self):
         icon_path = Path(__file__).resolve().parent / "resources" / "icon.svg"
@@ -31,6 +34,9 @@ class LunarGIS:
         self.iface.mainWindow().addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
         self.dock.hide()
         self.dock.visibilityChanged.connect(self._sync_action)
+
+        self.provider = LunarGISProvider()
+        QgsApplication.processingRegistry().addProvider(self.provider)
 
     def _build_widget(self):
         widget = QWidget()
@@ -69,6 +75,9 @@ class LunarGIS:
             self.action.setChecked(visible)
 
     def unload(self):
+        if self.provider is not None:
+            QgsApplication.processingRegistry().removeProvider(self.provider)
+            self.provider = None
         if self.dock is not None:
             self.iface.mainWindow().removeDockWidget(self.dock)
             self.dock.deleteLater()
