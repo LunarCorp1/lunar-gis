@@ -77,7 +77,7 @@ class AHPAlgorithm(QgsProcessingAlgorithm):
             "Computes priority weights from a reciprocal pairwise comparison matrix "
             "using the principal right eigenvector method (Saaty 1980).\n\n"
             "Inputs:\n"
-            "  Criteria: JSON array of criterion names, e.g. [\"Cost\", \"Quality\", \"Risk\"]\n"
+            '  Criteria: JSON array of criterion names, e.g. ["Cost", "Quality", "Risk"]\n'
             "  Matrix: JSON square array of arrays, e.g.\n"
             "    [[1, 3, 5],\n"
             "     [0.333333, 1, 3],\n"
@@ -113,7 +113,7 @@ class AHPAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterString(
                 self.MATRIX,
                 "Pairwise Matrix (JSON array of arrays)",
-                defaultValue='[[1, 3, 5], [0.333333333333, 1, 3], [0.2, 0.333333333333, 1]]',
+                defaultValue="[[1, 3, 5], [0.333333333333, 1, 3], [0.2, 0.333333333333, 1]]",
                 optional=False,
             )
         )
@@ -162,22 +162,16 @@ class AHPAlgorithm(QgsProcessingAlgorithm):
                 raise QgsProcessingException(f"Matrix row {i} must be an array")
             for j, val in enumerate(row):
                 if not isinstance(val, (int, float)):
-                    raise QgsProcessingException(
-                        f"Matrix[{i}][{j}] must be a number, got {type(val).__name__}"
-                    )
+                    raise QgsProcessingException(f"Matrix[{i}][{j}] must be a number, got {type(val).__name__}")
 
         # --- Dimension mismatch ---
         n = len(criteria)
         if len(matrix) != n:
-            raise QgsProcessingException(
-                f"Criteria count ({n}) does not match matrix rows ({len(matrix)})"
-            )
+            raise QgsProcessingException(f"Criteria count ({n}) does not match matrix rows ({len(matrix)})")
 
         for i, row in enumerate(matrix):
             if len(row) != n:
-                raise QgsProcessingException(
-                    f"Matrix row {i} has {len(row)} columns, expected {n}"
-                )
+                raise QgsProcessingException(f"Matrix row {i} has {len(row)} columns, expected {n}")
 
         # --- Run AHP engine ---
         try:
@@ -199,10 +193,7 @@ class AHPAlgorithm(QgsProcessingAlgorithm):
             "<tr><th>Criterion</th><th>Weight</th></tr>",
         ]
         for c, w in zip(result.criteria, result.weights, strict=True):
-            html_parts.append(
-                f"<tr><td>{html.escape(c)}</td>"
-                f"<td>{w:.{DISPLAY_PRECISION}f}</td></tr>"
-            )
+            html_parts.append(f"<tr><td>{html.escape(c)}</td><td>{w:.{DISPLAY_PRECISION}f}</td></tr>")
         html_parts.append("</table>")
 
         flag_color = {
@@ -211,27 +202,29 @@ class AHPAlgorithm(QgsProcessingAlgorithm):
             "REVISE_REQUIRED": "red",
         }.get(flag, "black")
 
-        html_parts.extend([
-            "<br><b>Consistency:</b>",
-            "<table border='1' cellpadding='4' cellspacing='0'>",
-            f"<tr><td>Lambda Max</td><td>{result.consistency.lambda_max:.{DISPLAY_PRECISION}f}</td></tr>",
-            f"<tr><td>CI</td><td>{result.consistency.ci:.{DISPLAY_PRECISION}f}</td></tr>",
-            f"<tr><td>RI ({result.consistency.ri_source})</td>"
-            f"<td>{result.consistency.ri_value:.{DISPLAY_PRECISION}f}</td></tr>",
-            f"<tr><td>CR</td><td>{result.consistency.cr:.{DISPLAY_PRECISION}f}</td></tr>",
-            f"<tr><td>Flag</td><td style='color:{flag_color};font-weight:bold'>{flag}</td></tr>",
-            f"<tr><td>Trivial Consistency</td>"
-            f"<td>{'Yes' if result.consistency.trivial_consistency else 'No'}</td></tr>",
-            "</table>",
-            "<br><b>Provenance:</b>",
-            "<table border='1' cellpadding='4' cellspacing='0'>",
-            f"<tr><td>Method</td><td>{result.method}</td></tr>",
-            f"<tr><td>Engine Version</td><td>{result.engine_version}</td></tr>",
-            f"<tr><td>Numerical Policy</td><td>{result.numerical_policy_version}</td></tr>",
-            f"<tr><td>Iterations</td><td>{result.iteration_count}</td></tr>",
-            f"<tr><td>Input Hash</td><td><code>{result.input_hash[:16]}...</code></td></tr>",
-            "</table>",
-        ])
+        html_parts.extend(
+            [
+                "<br><b>Consistency:</b>",
+                "<table border='1' cellpadding='4' cellspacing='0'>",
+                f"<tr><td>Lambda Max</td><td>{result.consistency.lambda_max:.{DISPLAY_PRECISION}f}</td></tr>",
+                f"<tr><td>CI</td><td>{result.consistency.ci:.{DISPLAY_PRECISION}f}</td></tr>",
+                f"<tr><td>RI ({result.consistency.ri_source})</td>"
+                f"<td>{result.consistency.ri_value:.{DISPLAY_PRECISION}f}</td></tr>",
+                f"<tr><td>CR</td><td>{result.consistency.cr:.{DISPLAY_PRECISION}f}</td></tr>",
+                f"<tr><td>Flag</td><td style='color:{flag_color};font-weight:bold'>{flag}</td></tr>",
+                f"<tr><td>Trivial Consistency</td>"
+                f"<td>{'Yes' if result.consistency.trivial_consistency else 'No'}</td></tr>",
+                "</table>",
+                "<br><b>Provenance:</b>",
+                "<table border='1' cellpadding='4' cellspacing='0'>",
+                f"<tr><td>Method</td><td>{result.method}</td></tr>",
+                f"<tr><td>Engine Version</td><td>{result.engine_version}</td></tr>",
+                f"<tr><td>Numerical Policy</td><td>{result.numerical_policy_version}</td></tr>",
+                f"<tr><td>Iterations</td><td>{result.iteration_count}</td></tr>",
+                f"<tr><td>Input Hash</td><td><code>{result.input_hash[:16]}...</code></td></tr>",
+                "</table>",
+            ]
+        )
 
         result_html = "\n".join(html_parts)
 

@@ -146,9 +146,7 @@ def _compute_ranking(weights: Sequence[float]) -> list[int]:
     return ranking
 
 
-def _detect_near_ties(
-    criteria: Sequence[str], weights: Sequence[float]
-) -> list[tuple[str, str]]:
+def _detect_near_ties(criteria: Sequence[str], weights: Sequence[float]) -> list[tuple[str, str]]:
     """Detect near-tied criteria pairs."""
     n = len(criteria)
     near_ties: list[tuple[str, str]] = []
@@ -419,9 +417,7 @@ def sensitivity_ahp(
         method_enum = method
 
     # Validate
-    _validate_sensitivity_input(
-        criteria, matrix, method_enum, perturbation_range, num_steps, target_criteria
-    )
+    _validate_sensitivity_input(criteria, matrix, method_enum, perturbation_range, num_steps, target_criteria)
 
     # Compute baseline
     criteria_list = list(criteria)
@@ -445,11 +441,6 @@ def sensitivity_ahp(
     else:
         target_indices = list(range(len(criteria_list)))
 
-    # Generate perturbation sequence
-    min_delta, max_delta = perturbation_range
-    step_size = (max_delta - min_delta) / (num_steps - 1)
-    perturbation_values = [min_delta + i * step_size for i in range(num_steps)]
-
     # Run OAT weight perturbation for each target criterion
     criterion_results: list[CriterionSensitivity] = []
 
@@ -458,9 +449,7 @@ def sensitivity_ahp(
         w_k = baseline_weights[target_idx]
 
         # Clamp perturbation range for this criterion
-        clamped_min, clamped_max = _clamp_perturbation_range(
-            baseline_weights, target_idx, perturbation_range
-        )
+        clamped_min, clamped_max = _clamp_perturbation_range(baseline_weights, target_idx, perturbation_range)
         clamped_step_size = (clamped_max - clamped_min) / (num_steps - 1)
         clamped_values = [clamped_min + i * clamped_step_size for i in range(num_steps)]
 
@@ -478,13 +467,13 @@ def sensitivity_ahp(
 
         # Stability interval
         stability_lower, stability_upper = _compute_stability_interval(
-            baseline_ranking, clamped_values, perturbed_rankings_list,
+            baseline_ranking,
+            clamped_values,
+            perturbed_rankings_list,
         )
 
         # Crossover detection
-        crossovers = _detect_crossovers(
-            clamped_values, perturbed_rankings_list, baseline_ranking
-        )
+        crossovers = _detect_crossovers(clamped_values, perturbed_rankings_list, baseline_ranking)
 
         criterion_results.append(
             CriterionSensitivity(

@@ -15,14 +15,11 @@ Pure stdlib, no QGIS/network/numpy/scipy. Covers:
 
 from __future__ import annotations
 
-import math
 
 import pytest
 
 from lunar_gis.analysis.ahp import (
     FLOAT_COMPARE_EPS,
-    AHPError,
-    ConsistencyFlag,
     ahp,
 )
 from lunar_gis.analysis.sensitivity import (
@@ -30,11 +27,9 @@ from lunar_gis.analysis.sensitivity import (
     NEAR_TIE_TOL,
     RANKING_POLICY_VERSION,
     SENSITIVITY_POLICY_VERSION,
-    CriterionSensitivity,
     SensitivityError,
     SensitivityErrorCode,
     SensitivityMethod,
-    SensitivityResult,
     _compute_ranking,
     _detect_crossovers,
     _detect_near_ties,
@@ -249,12 +244,16 @@ class TestDeterminism:
     def test_determinism_extended_oat(self) -> None:
         """Determinism: extended OAT sweep with many steps."""
         r1 = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
-            perturbation_range=(-0.4, 0.4), num_steps=50,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
+            perturbation_range=(-0.4, 0.4),
+            num_steps=50,
         )
         r2 = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
-            perturbation_range=(-0.4, 0.4), num_steps=50,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
+            perturbation_range=(-0.4, 0.4),
+            num_steps=50,
         )
         for j in range(3):
             assert r1.criterion_results[j].perturbed_weights == r2.criterion_results[j].perturbed_weights
@@ -278,7 +277,8 @@ class TestDeterminism:
 class TestStabilityInterval:
     def test_no_crossover_full_range(self) -> None:
         result = sensitivity_ahp(
-            ORACLE3_CRITERIA, ORACLE3_MATRIX,
+            ORACLE3_CRITERIA,
+            ORACLE3_MATRIX,
             perturbation_range=(-0.1, 0.1),
         )
         # With small range, no crossover expected
@@ -288,7 +288,8 @@ class TestStabilityInterval:
 
     def test_crossover_detected(self) -> None:
         result = sensitivity_ahp(
-            ORACLE3_CRITERIA, ORACLE3_MATRIX,
+            ORACLE3_CRITERIA,
+            ORACLE3_MATRIX,
             perturbation_range=(-0.5, 0.5),
             num_steps=50,
         )
@@ -299,7 +300,8 @@ class TestStabilityInterval:
 
     def test_stability_interval_bounds(self) -> None:
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             perturbation_range=(-0.5, 0.5),
             num_steps=50,
         )
@@ -311,7 +313,8 @@ class TestStabilityInterval:
     def test_stability_interval_non_decreasing(self) -> None:
         """stability_lower <= stability_upper always."""
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             perturbation_range=(-0.5, 0.5),
             num_steps=50,
         )
@@ -321,7 +324,8 @@ class TestStabilityInterval:
     def test_stability_interval_full_range_when_all_stable(self) -> None:
         """When no crossover occurs, interval spans the full perturbation range."""
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             perturbation_range=(-0.1, 0.1),
             num_steps=10,
         )
@@ -437,7 +441,8 @@ class TestProvenance:
 
     def test_target_criteria_recorded(self) -> None:
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             target_criteria=["A"],
         )
         assert result.target_criteria == ["A"]
@@ -466,7 +471,8 @@ class TestValidation:
     def test_invalid_method(self) -> None:
         with pytest.raises(SensitivityError) as exc_info:
             sensitivity_ahp(
-                ORACLE1_CRITERIA, ORACLE1_MATRIX,
+                ORACLE1_CRITERIA,
+                ORACLE1_MATRIX,
                 method="INVALID",
             )
         assert exc_info.value.code == SensitivityErrorCode.INVALID_METHOD
@@ -475,7 +481,8 @@ class TestValidation:
         """OAT_PAIRWISE raises SensitivityError until implemented."""
         with pytest.raises(SensitivityError) as exc_info:
             sensitivity_ahp(
-                ORACLE1_CRITERIA, ORACLE1_MATRIX,
+                ORACLE1_CRITERIA,
+                ORACLE1_MATRIX,
                 method="OAT_PAIRWISE",
             )
         assert exc_info.value.code == SensitivityErrorCode.INVALID_METHOD
@@ -484,7 +491,8 @@ class TestValidation:
     def test_perturbation_range_min_ge_max(self) -> None:
         with pytest.raises(SensitivityError) as exc_info:
             sensitivity_ahp(
-                ORACLE1_CRITERIA, ORACLE1_MATRIX,
+                ORACLE1_CRITERIA,
+                ORACLE1_MATRIX,
                 perturbation_range=(0.5, -0.5),
             )
         assert exc_info.value.code == SensitivityErrorCode.INVALID_PERTURBATION_RANGE
@@ -492,7 +500,8 @@ class TestValidation:
     def test_perturbation_range_out_of_bounds(self) -> None:
         with pytest.raises(SensitivityError) as exc_info:
             sensitivity_ahp(
-                ORACLE1_CRITERIA, ORACLE1_MATRIX,
+                ORACLE1_CRITERIA,
+                ORACLE1_MATRIX,
                 perturbation_range=(-1.5, 0.5),
             )
         assert exc_info.value.code == SensitivityErrorCode.INVALID_PERTURBATION_RANGE
@@ -510,7 +519,8 @@ class TestValidation:
     def test_invalid_target_criterion(self) -> None:
         with pytest.raises(SensitivityError) as exc_info:
             sensitivity_ahp(
-                ORACLE1_CRITERIA, ORACLE1_MATRIX,
+                ORACLE1_CRITERIA,
+                ORACLE1_MATRIX,
                 target_criteria=["NONEXISTENT"],
             )
         assert exc_info.value.code == SensitivityErrorCode.INVALID_TARGET_CRITERION
@@ -533,7 +543,8 @@ class TestOracleCases:
     def test_oracle3_2x2_crossover(self) -> None:
         """Oracle 3: 2x2 exact formula, crossover at w_x = w_y = 0.5."""
         result = sensitivity_ahp(
-            ORACLE3_CRITERIA, ORACLE3_MATRIX,
+            ORACLE3_CRITERIA,
+            ORACLE3_MATRIX,
             perturbation_range=(-0.5, 0.5),
             num_steps=100,
         )
@@ -545,15 +556,14 @@ class TestOracleCases:
         # Crossover should be detected
         assert len(cr_x.crossover_points) > 0
         # Crossover at delta = -0.25 (w_x goes from 0.75 to 0.5)
-        crossover_found = any(
-            abs(c - (-0.25)) < 0.02 for c in cr_x.crossover_points
-        )
+        crossover_found = any(abs(c - (-0.25)) < 0.02 for c in cr_x.crossover_points)
         assert crossover_found
 
     def test_oracle1_3x3_ranking_stable(self) -> None:
         """Oracle 1: 3x3 consistent, small perturbation keeps ranking."""
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             perturbation_range=(-0.1, 0.1),
             num_steps=10,
         )
@@ -565,7 +575,8 @@ class TestOracleCases:
     def test_oracle2_3x3_near_tie(self) -> None:
         """Oracle 2: 3x3 near-tie matrix."""
         result = sensitivity_ahp(
-            ORACLE2_CRITERIA, ORACLE2_MATRIX,
+            ORACLE2_CRITERIA,
+            ORACLE2_MATRIX,
             perturbation_range=(-0.1, 0.1),
             num_steps=20,
         )
@@ -585,7 +596,8 @@ class TestFullSweep:
 
     def test_target_criteria_subset(self) -> None:
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             target_criteria=["A"],
         )
         assert len(result.criterion_results) == 1
@@ -611,7 +623,8 @@ class TestFullSweep:
 class TestBounds:
     def test_lower_bound(self) -> None:
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             perturbation_range=(-0.2, 0.3),
             num_steps=5,
         )
@@ -620,7 +633,8 @@ class TestBounds:
 
     def test_upper_bound(self) -> None:
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             perturbation_range=(-0.2, 0.3),
             num_steps=5,
         )
@@ -629,7 +643,8 @@ class TestBounds:
 
     def test_step_count(self) -> None:
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             num_steps=7,
         )
         for cr in result.criterion_results:
@@ -729,7 +744,8 @@ class TestImmutability:
 
     def test_baseline_not_mutated_by_scenarios(self) -> None:
         result = sensitivity_ahp(
-            ORACLE1_CRITERIA, ORACLE1_MATRIX,
+            ORACLE1_CRITERIA,
+            ORACLE1_MATRIX,
             perturbation_range=(-0.5, 0.5),
         )
         # Run again, check baseline unchanged

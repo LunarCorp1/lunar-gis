@@ -117,9 +117,7 @@ class TestAHPReferenceCases:
         from lunar_gis.analysis.ahp import ahp
 
         criteria = _parse_criteria(_criteria_str(["c1", "c2", "c3"]))
-        matrix = _parse_matrix(
-            _matrix_str([[1, 3, 5], [1 / 3, 1, 3], [1 / 5, 1 / 3, 1]])
-        )
+        matrix = _parse_matrix(_matrix_str([[1, 3, 5], [1 / 3, 1, 3], [1 / 5, 1 / 3, 1]]))
         result = ahp(criteria, matrix)
         assert result.weights == pytest.approx((0.636986, 0.258285, 0.104729), abs=1e-6)
         assert result.consistency.flag == ConsistencyFlag.ACCEPTABLE
@@ -146,9 +144,7 @@ class TestAHPReferenceCases:
         from lunar_gis.analysis.ahp import ahp
 
         criteria = _parse_criteria(_criteria_str(["a", "b", "c"]))
-        matrix = _parse_matrix(
-            _matrix_str([[1, 9, 1 / 9], [1 / 9, 1, 9], [9, 1 / 9, 1]])
-        )
+        matrix = _parse_matrix(_matrix_str([[1, 9, 1 / 9], [1 / 9, 1, 9], [9, 1 / 9, 1]]))
         result = ahp(criteria, matrix)
         assert result.consistency.flag == ConsistencyFlag.REVISE_REQUIRED
 
@@ -156,9 +152,7 @@ class TestAHPReferenceCases:
         from lunar_gis.analysis.ahp import ahp
 
         criteria = _parse_criteria(_criteria_str(["a", "b", "c"]))
-        matrix = _parse_matrix(
-            _matrix_str([[1, 7, 1 / 5], [1 / 7, 1, 1 / 9], [5, 9, 1]])
-        )
+        matrix = _parse_matrix(_matrix_str([[1, 7, 1 / 5], [1 / 7, 1, 1 / 9], [5, 9, 1]]))
         result = ahp(criteria, matrix)
         assert result.consistency.flag == ConsistencyFlag.ACCEPTABLE_WITH_WARNING
 
@@ -175,6 +169,7 @@ class TestErrorPropagation:
         matrix = _parse_matrix(_matrix_str([[1, 2, 3], [0.5, 1, 2], [0.33, 0.5, 1]]))
         with pytest.raises(AHPError) as exc:
             from lunar_gis.analysis.ahp import ahp
+
             ahp(criteria, matrix)
         assert exc.value.code == AHPErrorCode.NON_SQUARE_MATRIX
 
@@ -183,6 +178,7 @@ class TestErrorPropagation:
         matrix = _parse_matrix(_matrix_str([[2, 3], [1 / 3, 1]]))
         with pytest.raises(AHPError) as exc:
             from lunar_gis.analysis.ahp import ahp
+
             ahp(criteria, matrix)
         assert exc.value.code == AHPErrorCode.INVALID_DIAGONAL
 
@@ -191,6 +187,7 @@ class TestErrorPropagation:
         matrix = _parse_matrix(_matrix_str([[1, 3], [0.5, 1]]))
         with pytest.raises(AHPError) as exc:
             from lunar_gis.analysis.ahp import ahp
+
             ahp(criteria, matrix)
         assert exc.value.code == AHPErrorCode.RECIPROCITY_VIOLATION
 
@@ -199,17 +196,17 @@ class TestErrorPropagation:
         matrix = _parse_matrix(_matrix_str([[1, 0], [1, 1]]))
         with pytest.raises(AHPError) as exc:
             from lunar_gis.analysis.ahp import ahp
+
             ahp(criteria, matrix)
         assert exc.value.code == AHPErrorCode.INVALID_NUMERIC_VALUE
 
     def test_unsupported_size(self) -> None:
         n = 11
         criteria = _parse_criteria(_criteria_str([f"c{i}" for i in range(n)]))
-        matrix = _parse_matrix(
-            _matrix_str([[1.0 if i == j else 1.0 for j in range(n)] for i in range(n)])
-        )
+        matrix = _parse_matrix(_matrix_str([[1.0 if i == j else 1.0 for j in range(n)] for i in range(n)]))
         with pytest.raises(AHPError) as exc:
             from lunar_gis.analysis.ahp import ahp
+
             ahp(criteria, matrix)
         assert exc.value.code == AHPErrorCode.UNSUPPORTED_MATRIX_SIZE
 
