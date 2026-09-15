@@ -54,3 +54,4 @@ Existing ADRs 0001–0003 predate this template and use `Decision/Rationale/Cons
 | ADR-0008 | Tool Contracts and Registry | Accepted 2026-09-14 |
 | ADR-0009 | Tool Governance Layer | Accepted 2026-09-14 |
 | ADR-0010 | Controlled Tool Execution Boundary | Accepted 2026-09-14 |
+| ADR-0011 | AHP Tool Contract & Registry Integration | Accepted 2026-09-15 |
