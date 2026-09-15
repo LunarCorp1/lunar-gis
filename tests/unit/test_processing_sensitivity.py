@@ -235,8 +235,8 @@ class TestDeterminism:
 
 try:
     from qgis.core import (
-        QgsProcessingAlgorithm,
-        QgsProcessingProvider,
+        QgsProcessingAlgorithm,  # noqa: F401 — QGIS availability detection only
+        QgsProcessingProvider,  # noqa: F401 — QGIS availability detection only
     )
 
     HAS_QGIS = True
