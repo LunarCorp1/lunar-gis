@@ -1,6 +1,8 @@
 # M4-T01: Data Engine Architecture, Methodology & OSS Audit
 
-- Status: Design (no implementation)
+- Status: Design accepted (M4-T01); partially implemented by M4-T02
+  (`lunar_gis/data/contracts.py` + `discovery_qgis.py`: contracts,
+  classification v1, discovery snapshot — see §18)
 - Date: 2026-09-18
 - Scope: M4-T01 research/design audit
 - Sources of truth: `AGENTS.md` (12 rules), ADR-0001…ADR-0012,
@@ -174,7 +176,10 @@ deferred) — so classification (§3) can distinguish `coverage-gap` from
   normalize `""` → `crs_authid = None` + `crs_known = False`
   (`UNAVAILABLE(authid-empty)`). CRS lookup failure → `UNAVAILABLE(reason)`.
 - Geometry type is an opaque string at discovery time (QGIS 4 enum repr
-  drift risk per M1 §22); canonicalization to a closed enum happens in
+  drift risk per M1 §22 — verified on QGIS 4.2.0: `str()` of
+  `Qgis.GeometryType` yields the int, with Point=0, Line=1, Polygon=2,
+  Unknown=3, Null=4; the frozen mapping table lives in
+  `contracts.canonicalize_geometry`); canonicalization to a closed enum happens in
   validation (§7), not discovery.
 - Extent/fields that require expensive provider queries are
   `UNAVAILABLE(deferred)` — discovery must never trigger full table
@@ -327,7 +332,12 @@ not a schema type.
 Rules: unknown JSON fields rejected; empty `acceptable_sources` invalid;
 `field_types` values restricted to the closed subset
 `{String, Int, Double, Date, DateTime, Bool, StringList}` (unlisted →
-requirement INVALID — fail-closed, explicit); coercion allowlist frozen:
+requirement INVALID — fail-closed, explicit); provider type names are
+normalized to the subset first via a frozen case-insensitive alias table
+(`integer→Int`, `string→String`, `double/float/real→Double`,
+`date→Date`, `datetime/timestamp→DateTime`, `bool/boolean→Bool` — full
+table in `contracts.normalize_field_type`, verified against real QGIS 4.2
+`typeName()` output which yields lowercase names); coercion allowlist frozen:
 exact-type match + `Int→Double` widening only, everything else (notably
 string→number on join keys) fails. `extent` validated
 (`xmin<xmax`, `ymin<ymax`; CRS-range/antimeridian rules at
@@ -780,7 +790,39 @@ offline rule favors lazy imports). Pattern-only rows add zero surface.
   page, pointers here) and explicitly amends ADR-0004's `agent`/`reports`
   import rows.
 
-## 18. References
+## 18. M4-T02 implementation notes
+
+M4-T02 implements the QGIS-free contracts and local discovery subset.
+Deviations and v1-scope pins relative to the frozen design above (all
+within frozen latitude; no ADR change):
+
+- v1 classifier enumerates single-step chains only; multi-step
+  composition is an M4-T03+ seam (symbolic `output_refs`).
+- `clip`/`filter` are accepted schema values but never emitted by v1
+  enumeration (satisfied clip preconditions already classify AVAILABLE;
+  filter predicates are not representable in `DataRequirement v1.0`).
+- Join cardinality ships as `1:1-proposed` (validation confirms per §7).
+- Temporal evaluates as a trailing check after validity (check order
+  geometry→fields→CRS→reachability→coverage→validity→temporal).
+- QGIS 4.2.0 verified: `str(Qgis.GeometryType)` yields ints
+  (Point=0, Line=1, Polygon=2, Unknown=3, Null=4); `QgsField.typeName()`
+  yields lowercase names (normalized via frozen alias table).
+- Provider prefix→storage table and `MAX_CHAIN_STEPS=3` are
+  implementation config (non-normative) per §16.
+- `MissingReason` v1 snapshot subset only (8 values); `provider-offline` /
+  `license-unavailable` are acquisition-scope (design §6), owned by
+  provider tasks, never emitted by `classify_requirement` v1.
+- v1 fulfills the `local-project` snapshot path only; `local-file` /
+  `provider:<id>` sources are accepted but unevaluated (M4-T03+ seam).
+- `coverage_threshold<1.0` with partial overlap → `unknown-deferred`
+  (no QGIS-free area ratios).
+- Join key = first `sorted(common)` coercible pair (frozen `COERCIBLE`
+  table), `cardinality` shipped as `1:1-proposed`.
+- Reproject branches require ESTIMATE coverage too: CRS-mismatch +
+  extent-mismatch combinations never emit single-step chains (coverage
+  re-validated QGIS-side in M4-T03+).
+
+## 19. References
 
 1. AGENTS.md rules 1–12; ADR-0001…ADR-0012; MILESTONES.md (M4 Data Engine).
 2. `docs/providers/PROVIDER_CONTRACT.md`; `docs/security/SECURITY_MODEL.md`.
