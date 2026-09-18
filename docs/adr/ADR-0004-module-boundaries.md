@@ -25,12 +25,12 @@ Keep the bounded layout as 10 regular packages with docstring-only `__init__.py`
 | `utils` | Small shared utilities, secret redaction, path safety | nothing in `lunar_gis` | QGIS, LLM, network |
 | `provenance` | Dataset and workflow lineage, audit events | `utils` | QGIS GUI, AI execution, network |
 | `project` | QGIS project context, `LayerSummary`, `ProjectContext` | `utils`, `qgis.core` | `agent`, `ai`, `cartography`, network |
-| `data` | Local file inspection, `DataProvider` adapters (see PROVIDER_CONTRACT.md) | `provenance`, `project`, `utils`, `qgis.core` | `ai`, `cartography`, arbitrary `requests.get(url)` |
+| `data` | Local file inspection, `DataProvider` adapters (see PROVIDER_CONTRACT.md) | `provenance`, `project`, `utils`, `qgis.core` | `agent`, `reports`, `ai`, `cartography`, `qgis.gui`/`qgis.PyQt`, direct network clients, arbitrary `requests.get(url)` |
 | `analysis` | Deterministic AHP/MCE, raster/vector operations (M2/M3) | `project`, `data`, `provenance`, `utils`, `qgis.core`/`processing` | `ai` for math, LLM for weights |
-| `agent` | Tool registry, validation, permissions, execution, confirmation | `project`, `provenance`, `utils` | `qgis.gui`, direct GIS math, network |
+| `agent` | Tool registry, validation, permissions, execution, confirmation | `project`, `provenance`, `utils`, `data` (M4-T01 amendment: tool handlers only — no GIS math, no network, no QGIS GUI; see ADR-0012) | `qgis.gui`, direct GIS math, network |
 | `ai` | Provider/planner contracts, prompt assembly, context synthesis (M5) | `agent`, `utils` | `qgis`, `analysis`, `data`, direct GIS execution; must preserve offline fallback (AGENTS.md:11) |
 | `cartography` | Layout/style/QA engine (M7) | `analysis`, `project`, `data`, `utils`, `qgis.core` layouts | fetch URLs, LLM pixel math (AGENTS.md:1,2) |
-| `reports` | Reproducible reports, markdown/html/pdf (M8) | `provenance`, `analysis`, `project`, `utils` | network, LLM as source of truth |
+| `reports` | Reproducible reports, markdown/html/pdf (M8) | `provenance`, `analysis`, `project`, `utils`, `data` (M4-T01 amendment: read-only `DataResult`/`DataProvenance` DTOs only — no fetch, validate, or transform calls; see ADR-0012) | network, LLM as source of truth |
 | `ui` | PyQt/QGIS UI, dock, dialogs | `project`, `agent`, `utils`, `qgis.PyQt` | business logic, GIS math, provider calls |
 
 `resources/` is **not a package** (no `__init__.py`); it is package-data under `lunar_gis/resources/icon.svg` accessed via `Path(__file__).parent / "resources"` and `importlib.resources` (verified in `test_icon_accessible_via_importlib_resources`).

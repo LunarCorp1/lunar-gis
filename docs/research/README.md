@@ -6,6 +6,7 @@ This directory is reserved primarily for M6 Research Mode, but holds milestone r
 * **M2 audit:** `M2-AHP-METHODOLOGY-AND-OSS-AUDIT.md` — AHP methodology definition (Saaty scale, principal-eigenvector canonical method, CI/CR ≤ 0.10, Saaty RI table) + OSS reuse audit (research only, no AHP implementation). See `docs/adr/README.md` lifecycle.
 * **M2 design:** `M2-SENSITIVITY-ANALYSIS-DESIGN.md` — AHP sensitivity analysis methodology, mathematical contract, OSS audit, and implementation design (M2-T05, research/design only, no implementation).
 * **M3 design:** `M3-SENSITIVITY-REPORTING-DESIGN.md` — deterministic sensitivity reporting/visualization design: canonical report model, stability visualizations, ranking/crossover/consistency rules, provenance, QGIS boundary, accessibility, OSS audit (M3-T04, research/design only, no implementation).
+* **M4 design:** `M4-DATA-ENGINE-DESIGN.md` — Data Engine architecture: discovery, AVAILABLE/DERIVABLE/MISSING classification, requirement contract, provider adapter interface, validation, transformation boundary, provenance, security, offline behavior, governed tools, OSS audit (M4-T01, research/design only, no implementation). See ADR-0012.
 * In M6 it will additionally contain:
   * research objective and study-area templates
   * criteria identification and data-sufficiency checklists
