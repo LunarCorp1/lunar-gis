@@ -856,6 +856,20 @@ M4-T04 implements the §8 transformation boundary
 - Verified live on QGIS 4.2.0 (filter→reproject chain; 9/9 provider
   algorithms load).
 
+M4-T06 implements the §10 provenance minimum
+(`lunar_gis/provenance/records.py` frozen `DataProvenance v1.0` +
+`store.py` append-only audit store): ORIGINAL/DERIVED rules,
+source_url strip-or-reject, analytical identity excluding
+`retrieved_at`, JSONL persistence, lineage projection.
+
+M4-T07 implements fulfillment orchestration (`lunar_gis/data/
+fulfillment.py`: `FulfillmentPlan`/`DataResult`, provider proposals
+for data-side gaps only) plus the §12 governed tools
+`data.describe_project` (READ), `data.check_requirement` (READ),
+`data.validate_dataset` (LOW), `data.register_local_file` (LOW).
+Inventory payloads round-trip extent+fields so classification survives
+serialization.
+
 ## 19. References
 
 1. AGENTS.md rules 1–12; ADR-0001…ADR-0012; MILESTONES.md (M4 Data Engine).

@@ -828,6 +828,7 @@ class TestImportGuard:
 
         blocked = sys.modules.get("qgis")
         sys.modules["qgis"] = None  # type: ignore[assignment]
+        original = sys.modules.get("lunar_gis.data.contracts")
         try:
             for module in [m for m in list(sys.modules) if m.startswith("lunar_gis.data.contracts")]:
                 del sys.modules[module]
@@ -838,3 +839,7 @@ class TestImportGuard:
                 sys.modules["qgis"] = blocked
             else:
                 sys.modules.pop("qgis", None)
+            # Restore the original module object so cross-module isinstance
+            # checks keep working for the rest of the session.
+            if original is not None:
+                sys.modules["lunar_gis.data.contracts"] = original
