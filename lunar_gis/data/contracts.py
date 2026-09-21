@@ -1337,3 +1337,300 @@ def classification_canonical_json(result: ClassificationResult) -> str:
         separators=(",", ":"),
         ensure_ascii=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Validation contracts, M4-T03 (QGIS-free shapes; QGIS executes in
+# validation_qgis.py). Frozen §7 vocabulary: verdicts are exactly
+# VALID | EMPTY | INVALID — PARTIAL is a validity *field*, never a verdict.
+# ---------------------------------------------------------------------------
+
+VALIDATION_MODEL_VERSION = "1.0"  # versions ValidationReport shape, not the QGIS executor
+
+# Frozen §7 check order (first failure wins). "snapshot-freshness" is an
+# M4-T03 validation precondition (stale snapshot → fail closed), not one of
+# §7's eight data checks.
+VALIDATION_CHECK_ORDER: tuple[str, ...] = (
+    "snapshot-freshness",
+    "allowlist",
+    "integrity",
+    "parseability",
+    "emptiness",
+    "schema",
+    "crs",
+    "geometry",
+    "coverage",
+)
+
+
+class ValidationVerdict(str, Enum):
+    """Validation outcome. No PARTIAL verdict (see validity field)."""
+
+    VALID = "valid"
+    EMPTY = "empty"
+    INVALID = "invalid"
+
+
+class SatisfactionState(str, Enum):
+    """Requirement-satisfaction outcome derived from one ValidationReport.
+
+    Narrow by design: derived from a single report, carrying no geometry or
+    extent math of its own. Classification (AVAILABLE/DERIVABLE/MISSING)
+    remains the only availability authority.
+    """
+
+    SATISFIED = "satisfied"
+    NOT_SATISFIED = "not-satisfied"
+    UNKNOWN_DEFERRED = "unknown-deferred"
+    PARTIAL = "partial"
+
+
+@dataclass(frozen=True)
+class ValidationCheck:
+    """One ordered validation check outcome."""
+
+    name: str  # one of VALIDATION_CHECK_ORDER
+    passed: bool
+    skipped: bool  # True only for EMPTY short-circuit ("skipped-empty") or deferred
+    detail: str
+
+
+@dataclass(frozen=True)
+class ValidationReport:
+    """QGIS-authoritative validation result (§7 output shape + linkage)."""
+
+    subject_kind: str  # "layer-ref" | "file"
+    subject_ref: str  # layer_id or minimized path (never raw secrets)
+    requirement_name: str | None
+    snapshot_id: str | None
+    verdict: ValidationVerdict
+    checks: tuple[ValidationCheck, ...]  # VALIDATION_CHECK_ORDER, first-failure-wins
+    crs_authid: str | None
+    crs_known: bool
+    geometry_canonical: str  # one of CANONICAL_GEOMETRIES
+    field_list: tuple[tuple[str, str], ...]  # (name, normalized type) pairs
+    extent: LayerExtent | None
+    fields_state: ValueState
+    feature_count: int | None
+    feature_count_state: ValueState
+    validity: str  # "FULL" | "PARTIAL" | "UNCHECKED"
+    validity_sample: tuple[int, int | None] | None  # (sampled, total|None)
+    coverage_met: bool | None  # None = unknown/deferred
+    coverage_method: str | None  # e.g. "transformed-bbox-containment"
+    has_time: bool | None  # temporal activity if determined, else None
+    warnings: tuple[str, ...]
+    validation_version: str = VALIDATION_MODEL_VERSION
+
+    def field_map(self) -> dict[str, str]:
+        """field_list pairs as a dict."""
+        return dict(self.field_list)
+
+
+@dataclass(frozen=True)
+class JoinKeyReport:
+    """Join-key validation outcome (§7 check 5 rule)."""
+
+    key: str
+    present_both: bool
+    coercible: bool
+    nulls_found: bool
+    duplicates_found: bool
+    rows_scanned: int
+    complete: bool  # False = capped sample; validation confirms/downgrades
+    verdict: ValidationVerdict  # VALID or INVALID (never EMPTY)
+
+
+@dataclass(frozen=True)
+class SatisfactionResult:
+    """Requirement-satisfaction derived from one ValidationReport (§6)."""
+
+    state: SatisfactionState
+    requirement_name: str
+    subject_ref: str
+    validation_verdict: ValidationVerdict
+    validation_ref: str  # sha256 of the report canonical JSON
+    evidence: tuple[str, ...]  # templated "check=pass|fail|skip:detail" lines
+    reasons: tuple[str, ...]  # stable reason codes (see satisfy_requirement)
+    snapshot_id: str | None
+
+
+def report_to_dict(report: ValidationReport) -> dict[str, Any]:
+    """ValidationReport as a plain JSON-compatible dict (Nones omitted)."""
+    return dict(_dataclass_to_dict(report))
+
+
+def report_canonical_json(report: ValidationReport) -> str:
+    """Deterministic canonical JSON for a report (sorted keys)."""
+    return json.dumps(
+        report_to_dict(report),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def report_identity(report: ValidationReport) -> str:
+    """sha256 identity of a report's canonical bytes (validation_ref)."""
+    return hashlib.sha256(report_canonical_json(report).encode("utf-8")).hexdigest()
+
+
+def evaluate_join_values(
+    key: str,
+    left_fields: dict[str, str],
+    right_fields: dict[str, str],
+    left_values: Sequence[Any],
+    right_values: Sequence[Any],
+    complete: bool,
+) -> JoinKeyReport:
+    """Evaluate join-key validity over detached value lists (pure).
+
+    Feature iteration stays in validation_qgis (main thread); this function
+    applies only the frozen rule: key present in both inputs with
+    coercion-compatible types (exact + Int→Double, normalized names), no
+    nulls, no duplicates on the 1:1-required side. Any violation →
+    INVALID with the failing condition; `complete=False` is recorded for
+    the caller to treat as provisional.
+    """
+    if key not in left_fields or key not in right_fields:
+        return JoinKeyReport(
+            key=key,
+            present_both=False,
+            coercible=False,
+            nulls_found=False,
+            duplicates_found=False,
+            rows_scanned=len(left_values) + len(right_values),
+            complete=complete,
+            verdict=ValidationVerdict.INVALID,
+        )
+    left_type = normalize_field_type(left_fields[key])
+    right_type = normalize_field_type(right_fields[key])
+    if (left_type, right_type) not in COERCIBLE and (right_type, left_type) not in COERCIBLE:
+        return JoinKeyReport(
+            key=key,
+            present_both=True,
+            coercible=False,
+            nulls_found=False,
+            duplicates_found=False,
+            rows_scanned=len(left_values) + len(right_values),
+            complete=complete,
+            verdict=ValidationVerdict.INVALID,
+        )
+    nulls = any(v is None for v in list(left_values) + list(right_values))
+    if nulls:
+        return JoinKeyReport(
+            key=key,
+            present_both=True,
+            coercible=True,
+            nulls_found=True,
+            duplicates_found=False,
+            rows_scanned=len(left_values) + len(right_values),
+            complete=complete,
+            verdict=ValidationVerdict.INVALID,
+        )
+    seen_left = set()
+    duplicates = False
+    for value in left_values:
+        token = json.dumps(value, sort_keys=True, default=str)
+        if token in seen_left:
+            duplicates = True
+            break
+        seen_left.add(token)
+    if not duplicates:
+        seen_right = set()
+        for value in right_values:
+            token = json.dumps(value, sort_keys=True, default=str)
+            if token in seen_right or token in seen_left:
+                duplicates = True
+                break
+            seen_right.add(token)
+    if duplicates:
+        return JoinKeyReport(
+            key=key,
+            present_both=True,
+            coercible=True,
+            nulls_found=False,
+            duplicates_found=True,
+            rows_scanned=len(left_values) + len(right_values),
+            complete=complete,
+            verdict=ValidationVerdict.INVALID,
+        )
+    return JoinKeyReport(
+        key=key,
+        present_both=True,
+        coercible=True,
+        nulls_found=False,
+        duplicates_found=False,
+        rows_scanned=len(left_values) + len(right_values),
+        complete=complete,
+        verdict=ValidationVerdict.VALID,
+    )
+
+
+def satisfy_requirement(requirement: DataRequirement, report: ValidationReport) -> SatisfactionResult:
+    """Derive requirement satisfaction from one ValidationReport (pure).
+
+    No GIS math: only closed-enum/field/coercion/verdict mapping over
+    QGIS-produced values. Order: INVALID/EMPTY verdicts → deferred-blocking
+    unknowns → terminal PARTIAL validity → constraint re-evaluation →
+    SATISFIED. Never claims SATISFIED from UNKNOWN states.
+    """
+    evidence = tuple(
+        f"{c.name}={'pass' if c.passed else 'fail'}{':skipped' if c.skipped else ''}:{c.detail}" for c in report.checks
+    )
+    ref = report_identity(report)
+
+    def decide(
+        state: SatisfactionState, reasons: Sequence[str], validation_verdict: ValidationVerdict | None = None
+    ) -> SatisfactionResult:
+        return SatisfactionResult(
+            state=state,
+            requirement_name=requirement.name,
+            subject_ref=report.subject_ref,
+            validation_verdict=validation_verdict or report.verdict,
+            validation_ref=ref,
+            evidence=evidence,
+            reasons=tuple(reasons),
+            snapshot_id=report.snapshot_id,
+        )
+
+    if report.verdict == ValidationVerdict.INVALID:
+        failed = next((c.name for c in report.checks if not c.passed and not c.skipped), "unknown")
+        return decide(SatisfactionState.NOT_SATISFIED, (f"invalid:{failed}",))
+    if report.verdict == ValidationVerdict.EMPTY:
+        return decide(SatisfactionState.NOT_SATISFIED, ("empty-dataset",))
+
+    # Deferred-blocking unknowns: requirement constrains a dimension the
+    # report could not determine.
+    if requirement.extent is not None and report.extent is None:
+        return decide(SatisfactionState.UNKNOWN_DEFERRED, ("deferred:extent",))
+    if requirement.crs_authid is not None and not report.crs_known:
+        return decide(SatisfactionState.UNKNOWN_DEFERRED, ("deferred:crs",))
+    if requirement.required_fields and report.fields_state != ValueState.KNOWN:
+        return decide(SatisfactionState.UNKNOWN_DEFERRED, ("deferred:fields",))
+    if requirement.extent is not None and report.coverage_met is None:
+        return decide(SatisfactionState.UNKNOWN_DEFERRED, ("deferred:coverage",))
+
+    # Terminal PARTIAL validity (known-incomplete, not unknown).
+    if report.validity == "PARTIAL":
+        return decide(SatisfactionState.PARTIAL, ("partial-validity",))
+
+    # Constraint re-evaluation over authoritative values.
+    if not geometry_satisfies(requirement.geometry, report.geometry_canonical):
+        return decide(SatisfactionState.NOT_SATISFIED, ("geometry-mismatch",))
+    field_map = report.field_map()
+    type_map = requirement.field_type_map()
+    for name in requirement.required_fields:
+        if name not in field_map:
+            return decide(SatisfactionState.NOT_SATISFIED, ("schema-gap",))
+        if name in type_map and not _type_compatible(field_map[name], type_map[name]):
+            return decide(SatisfactionState.NOT_SATISFIED, ("schema-gap",))
+    if requirement.crs_authid is not None and report.crs_authid != requirement.crs_authid:
+        return decide(SatisfactionState.NOT_SATISFIED, ("crs-mismatch",))
+    if requirement.extent is not None and report.coverage_met is False:
+        return decide(SatisfactionState.NOT_SATISFIED, ("coverage-gap",))
+    if requirement.has_time is not None:
+        if report.has_time is None:
+            return decide(SatisfactionState.UNKNOWN_DEFERRED, ("deferred:temporal",))
+        if report.has_time != requirement.has_time:
+            return decide(SatisfactionState.NOT_SATISFIED, ("temporal-mismatch",))
+    return decide(SatisfactionState.SATISFIED, ())

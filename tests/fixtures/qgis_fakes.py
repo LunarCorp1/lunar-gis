@@ -4,16 +4,22 @@ from __future__ import annotations
 
 
 class FakeCrs:
-    """Mimics qgis.core.QgsCoordinateReferenceSystem authid()."""
+    """Mimics qgis.core.QgsCoordinateReferenceSystem authid()/isValid()."""
 
-    def __init__(self, authid: str = "EPSG:4326", raise_exc: bool = False):
+    def __init__(self, authid: str = "EPSG:4326", raise_exc: bool = False, valid: bool = True):
         self._authid = authid
         self._raise_exc = raise_exc
+        self._valid = valid
 
     def authid(self) -> str:
         if self._raise_exc:
             raise RuntimeError("crs authid failed")
         return self._authid
+
+    def isValid(self) -> bool:
+        if self._raise_exc:
+            raise RuntimeError("crs isValid failed")
+        return self._valid
 
 
 class FakeExtent:
@@ -94,6 +100,48 @@ class FakeTemporalProperties:
         return self._active
 
 
+class FakeGeometry:
+    """Mimics qgis.core.QgsGeometry isNull()/isGeosValid()."""
+
+    def __init__(self, valid: bool = True, null: bool = False, raise_exc: bool = False):
+        self._valid = valid
+        self._null = null
+        self._raise_exc = raise_exc
+
+    def isNull(self) -> bool:
+        return self._null
+
+    def isGeosValid(self) -> bool:
+        if self._raise_exc:
+            raise RuntimeError("isGeosValid failed")
+        return self._valid
+
+
+class FakeFeature:
+    """Mimics qgis.core.QgsFeature id()/geometry()/attribute()."""
+
+    def __init__(
+        self,
+        fid: int = 1,
+        attributes: dict | None = None,
+        geometry: FakeGeometry | None = None,
+    ):
+        self._fid = fid
+        self._attributes = attributes or {}
+        self._geometry = geometry if geometry is not None else FakeGeometry()
+
+    def id(self) -> int:
+        return self._fid
+
+    def geometry(self) -> FakeGeometry:
+        return self._geometry
+
+    def attribute(self, name: str) -> object:
+        if name not in self._attributes:
+            raise KeyError(name)
+        return self._attributes[name]
+
+
 class FakeLayer:
     """Mimics the QgsMapLayer subset used by ProjectContext and discovery_qgis."""
 
@@ -122,6 +170,8 @@ class FakeLayer:
         source_raise: bool = False,
         temporal_active: bool | None = None,
         has_temporal: bool = True,
+        features: list[FakeFeature] | None = None,
+        has_features: bool = True,
     ):
         self._layer_id = layer_id
         self._name = name
@@ -146,6 +196,8 @@ class FakeLayer:
         self._source_raise = source_raise
         self._temporal_active = temporal_active
         self._has_temporal = has_temporal
+        self._features = features
+        self._has_features = has_features
 
     # Required API
     def id(self) -> str:
@@ -233,6 +285,11 @@ class FakeLayer:
                 raise AttributeError(name)
             active = self._temporal_active
             return lambda: FakeTemporalProperties(active=active)
+        if name == "getFeatures":
+            if not self._has_features:
+                raise AttributeError(name)
+            features = self._features if self._features is not None else []
+            return lambda *args, **kwargs: iter(list(features))
         raise AttributeError(name)
 
 

@@ -809,6 +809,24 @@ within frozen latitude; no ADR change):
   yields lowercase names (normalized via frozen alias table).
 - Provider prefix→storage table and `MAX_CHAIN_STEPS=3` are
   implementation config (non-normative) per §16.
+- `VALIDITY_SCAN_CAP=1000` / `JOIN_SCAN_CAP=1000` likewise impl config.
+
+M4-T03 implements QGIS-authoritative local validation
+(`lunar_gis/data/validation_qgis.py`) plus validation/satisfaction
+contracts (`contracts.py`: `ValidationVerdict`, `SatisfactionState`,
+`ValidationCheck`, `ValidationReport`, `JoinKeyReport`,
+`SatisfactionResult`, `satisfy_requirement`, `evaluate_join_values`,
+`VALIDATION_MODEL_VERSION="1.0"` shape-version). Within frozen latitude:
+
+- Normative coverage = requirement bbox vs layer extent transformed to
+  the requirement CRS via densified `transformBoundingBox` (QGIS
+  authority) + feature-presence probe (`filterRect`, capped); bbox
+  limitation recorded as warning, never hidden.
+- `PARTIAL` validity is terminal in `satisfy()` (never falls through to
+  SATISFIED); EMPTY always NOT_SATISFIED.
+- Local files: suffix+magic gate, probe layers never added to the
+  project, exact-path opening with optional sandbox safe-join seam.
+- Verified live on QGIS 4.2.0 (memory + GPKG paths).
 - `MissingReason` v1 snapshot subset only (8 values); `provider-offline` /
   `license-unavailable` are acquisition-scope (design §6), owned by
   provider tasks, never emitted by `classify_requirement` v1.
