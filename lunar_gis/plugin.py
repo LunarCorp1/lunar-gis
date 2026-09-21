@@ -1,13 +1,14 @@
-"""Minimal, usable QGIS 4 plugin shell for Lunar GIS."""
+"""Lunar GIS QGIS 4 plugin shell with the full workspace dock."""
 
 from pathlib import Path
 
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QAction, QDockWidget, QLabel, QVBoxLayout, QWidget
-from qgis.core import QgsApplication, QgsProject
+from qgis.PyQt.QtWidgets import QAction, QDockWidget
+from qgis.core import QgsApplication
 
 from lunar_gis.processing.provider import LunarGISProvider
+from lunar_gis.ui.workspace import LunarGISWorkspace
 
 
 class LunarGIS:
@@ -18,6 +19,7 @@ class LunarGIS:
         self.action = None
         self.dock = None
         self.provider = None
+        self.workspace = None
 
     def initGui(self):
         icon_path = Path(__file__).resolve().parent / "resources" / "icon.svg"
@@ -39,35 +41,12 @@ class LunarGIS:
         QgsApplication.processingRegistry().addProvider(self.provider)
 
     def _build_widget(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        title = QLabel("Lunar GIS")
-        title.setStyleSheet("font-size: 18px; font-weight: 700;")
-        self.layer_label = QLabel()
-        self.layer_label.setWordWrap(True)
-        self._refresh_context()
-        layout.addWidget(title)
-        layout.addWidget(QLabel("Current QGIS project context"))
-        layout.addWidget(self.layer_label)
-        layout.addStretch(1)
-        return widget
-
-    def _refresh_context(self):
-        project = QgsProject.instance()
-        layers = list(project.mapLayers().values())
-        if not layers:
-            self.layer_label.setText("No layers are currently loaded.")
-            return
-        lines = [f"Layers loaded: {len(layers)}", ""]
-        lines.extend(f"• {layer.name()}" for layer in layers[:20])
-        if len(layers) > 20:
-            lines.append(f"… and {len(layers) - 20} more")
-        self.layer_label.setText("\n".join(lines))
+        self.workspace = LunarGISWorkspace()
+        return self.workspace
 
     def toggle_dock(self, checked):
         if self.dock is None:
             return
-        self._refresh_context()
         self.dock.setVisible(checked)
 
     def _sync_action(self, visible):
