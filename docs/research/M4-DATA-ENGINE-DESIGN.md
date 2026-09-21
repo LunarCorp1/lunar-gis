@@ -840,6 +840,22 @@ contracts (`contracts.py`: `ValidationVerdict`, `SatisfactionState`,
   extent-mismatch combinations never emit single-step chains (coverage
   re-validated QGIS-side in M4-T03+).
 
+M4-T04 implements the §8 transformation boundary
+(`lunar_gis/data/transforms.py` QGIS-free contracts +
+`transform_qgis.py` QGIS-bound executor +
+`lunar_gis/processing/transform_algorithms.py` 7 Processing algorithms +
+`data.run_transformation` v1 governed tool). Within frozen latitude:
+
+- Closed 7-op set (no merge); preserving/transforming split;
+  `FilterPredicate` structured (never raw expressions); join 1:1 only.
+- Executor pins: `native:reprojectlayer`, `gdal:warpreproject`,
+  `native:clip`, `native:extractbyexpression`,
+  `native:joinattributestable`, `gdal:polygonize`, `gdal:rasterize`.
+- Chain outputs: memory layers or sandbox files; project never mutated
+  by the executor; HIGH risk + confirmation-gated tool.
+- Verified live on QGIS 4.2.0 (filter→reproject chain; 9/9 provider
+  algorithms load).
+
 ## 19. References
 
 1. AGENTS.md rules 1–12; ADR-0001…ADR-0012; MILESTONES.md (M4 Data Engine).
