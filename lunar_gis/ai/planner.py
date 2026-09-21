@@ -47,6 +47,8 @@ _GEOMETRY_HINTS: tuple[tuple[str, str], ...] = (
     ("school", "Point"),
     ("schools", "Point"),
     ("clinic", "Point"),
+    ("facility", "Point"),
+    ("hospital", "Point"),
     ("raster", "Raster"),
     ("dem", "Raster"),
     ("elevation", "Raster"),

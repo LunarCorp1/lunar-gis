@@ -1,15 +1,7 @@
-# docs/research — Research Mode (M6) + Reuse Audits
+# docs/research — Design audits and milestone research
 
-This directory is reserved primarily for M6 Research Mode, but holds milestone reuse audits as an exception.
-
-* **M1 audit:** `M1-OSS-REUSE-AUDIT.md` — Phase 1 open-source GIS/AI reuse & build-vs-integrate audit (research only, not M6 templates). See `docs/adr/README.md` lifecycle.
-* **M2 audit:** `M2-AHP-METHODOLOGY-AND-OSS-AUDIT.md` — AHP methodology definition (Saaty scale, principal-eigenvector canonical method, CI/CR ≤ 0.10, Saaty RI table) + OSS reuse audit (research only, no AHP implementation). See `docs/adr/README.md` lifecycle.
-* **M2 design:** `M2-SENSITIVITY-ANALYSIS-DESIGN.md` — AHP sensitivity analysis methodology, mathematical contract, OSS audit, and implementation design (M2-T05, research/design only, no implementation).
-* **M3 design:** `M3-SENSITIVITY-REPORTING-DESIGN.md` — deterministic sensitivity reporting/visualization design: canonical report model, stability visualizations, ranking/crossover/consistency rules, provenance, QGIS boundary, accessibility, OSS audit (M3-T04, research/design only, no implementation).
-* **M4 design:** `M4-DATA-ENGINE-DESIGN.md` — Data Engine architecture: discovery, AVAILABLE/DERIVABLE/MISSING classification, requirement contract, provider adapter interface, validation, transformation boundary, provenance, security, offline behavior, governed tools, OSS audit (M4-T01, research/design only, no implementation). See ADR-0012.
-* In M6 it will additionally contain:
-  * research objective and study-area templates
-  * criteria identification and data-sufficiency checklists
-  * methodology and reproducibility notes
-
-Until M6, do not implement Research Mode features. See `docs/architecture/MILESTONES.md` (M6) and `docs/adr/ADR-0004-module-boundaries.md` phase gates.
+* **M1 audit:** `M1-OSS-REUSE-AUDIT.md` — Phase 1 open-source GIS/AI reuse & build-vs-integrate audit. See `docs/adr/README.md` lifecycle.
+* **M2 audit:** `M2-AHP-METHODOLOGY-AND-OSS-AUDIT.md` — AHP methodology definition + OSS reuse audit.
+* **M2 design:** `M2-SENSITIVITY-ANALYSIS-DESIGN.md` — AHP sensitivity methodology and implementation design.
+* **M3 design:** `M3-SENSITIVITY-REPORTING-DESIGN.md` — deterministic sensitivity reporting/visualization design.
+* **M4 design:** `M4-DATA-ENGINE-DESIGN.md` — Data Engine architecture + implementation notes (§18: M4-T02 through M4-T07). See ADR-0012.

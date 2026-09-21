@@ -47,4 +47,4 @@ Use specialist agents for independent review where applicable:
 Review agents should be read-only unless explicitly assigned implementation work.
 
 ## Scope discipline
-Do not implement future-phase features opportunistically. The current milestone is the plugin foundation and safe project/layer context/tool registry. Do not add OpenRouter, data providers, AHP, MCE, or AutoCartography until their planned milestone is reached.
+Implement the current approved milestone/phase with the smallest coherent change. Do not implement future-phase features opportunistically beyond the approved plan. Cross-phase full builds proceed only under explicit project direction.

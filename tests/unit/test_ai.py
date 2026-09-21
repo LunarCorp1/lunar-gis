@@ -211,6 +211,7 @@ class TestToolCalling:
 class TestPlanner:
     def test_heuristic_geometry(self) -> None:
         assert heuristic_requirement("find clinics as points")["geometry"] == "Point"
+        assert heuristic_requirement("suitable health facility locations")["geometry"] == "Point"
         assert heuristic_requirement("suitability raster")["geometry"] == "Raster"
         assert heuristic_requirement("hello")["geometry"] == "Any"
 

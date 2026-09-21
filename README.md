@@ -1,21 +1,53 @@
 # Lunar GIS
 
-AI-powered GIS research, analysis, data discovery, provenance, and automatic cartography for QGIS 4.
+AI-assisted GIS research, analysis, data discovery, provenance, and automatic cartography for QGIS 4.
 
-## Current status
+## What it is
 
-Foundation phase. The current implementation target is a minimal QGIS plugin shell with project/layer context and the beginning of a safe tool-registry architecture.
+Lunar GIS is a QGIS 4 plugin that combines project understanding, deterministic data engineering, governed tool execution, AHP analysis, controlled external data, AI-assisted planning (OpenRouter), automated cartography, provenance, and reproducible reports — with QGIS owning all GIS correctness and the AI acting strictly as planner/interpreter.
+
+Core principle: **the AI proposes; the governed tool system decides what may execute; QGIS performs the GIS work.**
+
+## Capabilities
+
+- **Project context** — layer inventory snapshots (geometry, CRS, fields, counts, extents, validity, snapshot identity + staleness)
+- **Data engine** — structured requirements, AVAILABLE/DERIVABLE/MISSING classification, local fulfillment, controlled acquisition, QGIS-authoritative validation, declared transformations, provenance, DataResult
+- **Providers** — STAC (Earth Search), OSM Overpass (bounded QL-from-enums), Nominatim (policy-compliant) behind an SSRF-safe transport (allowlist + resolved-IP blocking + redirect re-validation)
+- **Transformations** — reproject-vector/raster, clip, filter, join (1:1), raster↔vector via pinned native Processing algorithms
+- **GIS analysis** — buffer, intersection, dissolve, zonal statistics, spatial join (governed tools + Processing algorithms)
+- **AHP + sensitivity** — deterministic weights, CI/CR, OAT perturbation, stability intervals
+- **AI layer** — OpenRouter provider abstraction, trust-labeled privacy-controlled context, structured tool calling validated against the registry, offline heuristic fallback
+- **Cartography** — deterministic Okabe-Ito styling, print layouts (map/title/legend/scalebar/north-arrow/provenance), QA checklist, PDF/PNG export
+- **Reports** — reproducible analytical content (hashed, timestamp-free) rendered as accessible self-contained HTML
+- **UI workspace** — 8-tab dock panel (Assistant/Project/Data/Analysis/Results/Provenance/Reports/Settings) with explicit HIGH-risk confirmations and offline mode
+
+## Installation
+
+1. Build or download `lunar_gis.zip` (`python -m build`, or CI artifacts).
+2. In QGIS: `Plugins > Manage and Install Plugins > Install from ZIP`, select the ZIP.
+3. Open via the Lunar GIS toolbar icon (dockable panel, right side by default).
+4. Optional: set an OpenRouter API key in Settings for AI-assisted planning (everything else works offline).
+
+Requirements: QGIS 4.x, Python ≥ 3.10. Zero runtime pip dependencies.
+
+## Typical workflow
+
+1. Open the workspace, refresh the project snapshot (Project tab).
+2. Ask a question in Assistant, or author a requirement in Data and check it.
+3. Review AVAILABLE / DERIVABLE / MISSING verdicts and evidence.
+4. Confirm acquisition for provider data, or run transformations/analysis.
+5. Validate results, inspect provenance, generate a map and a reproducible report.
 
 ## Product principles
 
-- Deterministic GIS execution
+- Deterministic GIS execution (QGIS authority)
 - AI as planner, not calculator
 - Local-data-first workflow
 - Controlled external data providers
 - Provenance by default
 - Reproducible workflows
-- Safety before automation
-- Professional cartography
+- Safety before automation (fail-closed, confirmations, audit)
+- Professional accessible cartography
 
 ## Development
 
@@ -33,38 +65,48 @@ pip install -e .[dev]
 ruff check .
 ruff format --check .
 
-# type check (mypy) — ignore_missing_imports for qgis.*
+# type check (mypy)
 mypy lunar_gis
 
-# tests (offline deterministic, no QGIS)
+# tests (offline deterministic; qgis-marked tests skip without QGIS)
 pytest -q
-# with coverage (threshold documented below)
+# with coverage (threshold 40, single-sourced in pyproject.toml)
 pytest --cov=lunar_gis --cov-report=term-missing --cov-report=xml --cov-fail-under=40 -q
 
 # security (dev/CI only, not runtime)
 bandit -c pyproject.toml -r lunar_gis
 # Gitleaks via CI action gitleaks/gitleaks-action@v3.0.0 (SHA-pinned e0c47f...); local if binary installed:
-# gitleaks detect --source . --no-git --verbose  # worktree; CI scans full history with fetch-depth: 0
+# gitleaks detect --source . --no-git --verbose
 
 # build/package verification
 python -m build
 pytest tests/unit/test_packaging.py::test_qgis_plugin_zip_structure -q
 ```
 
-Complete local gate (same as CI — quality-gate + security-gate):
+**Security:** Secrets must never be committed (see `docs/security/SECURITY_MODEL.md`). Hard-coded keys, arbitrary-URL fetching, `eval/exec` will fail `bandit`/`security-gate`. Module boundaries (`docs/adr/ADR-0004`) and the execution boundary (`docs/adr/ADR-0002`) are enforced by tests, not just scanners.
 
-```bash
-ruff check . && ruff format --check . && mypy lunar_gis && pytest --cov=lunar_gis --cov-report=term-missing --cov-report=xml --cov-fail-under=40 -q && bandit -c pyproject.toml -r lunar_gis && python -m build
-# + gitleaks detect --source . --no-git --verbose  # if binary installed (CI scans full history)
-```
+**Coverage:** threshold 40% (`fail_under` single-sourced in `pyproject.toml`); current total ~70%+ branch coverage. Do not lower the threshold.
 
-**Security:** Secrets must never be committed (see `.gitignore: .env`, `docs/security/SECURITY_MODEL.md`). Hard-coded keys, `requests.get(arbitrary_url)`, `eval/exec` will fail `bandit`/`security-gate`. False positives must be narrowly suppressed (`# nosec BXXX` with justification per `pyproject.toml:[tool.bandit]`), not whole-module skips. Scanners are not a replacement for `docs/adr/ADR-0004` module boundaries and `ADR-0002` execution boundary.
+### QGIS verification
 
-**Coverage baseline:** 44% total (44.44% branch) measured 2026-09-14 at `3e34a10` + `P0-T08` fakes (122 stmts, 22 branches, `lunar_gis/__init__.py` 33%, `agent/registry.py` 100%, `project/context.py` 100%, `plugin.py` 0% — still not covered, will rise only with QGIS harness). Previous baseline at `3ba4667` was 24% (23.61% branch). Threshold raised from `20` → `40` defensibly after covering `project/context` defensive branches and `registry` sorted/unknown-tool paths with meaningful tests (not artificial); next raise target 50-60 after future harness can cover `plugin.py`. `fail_under` is single-sourced in `pyproject.toml:fail_under` and mirrored in CI/README — do not lower.
+QGIS 4.2.0 live verification covers: discovery/validation/transformation/cartography paths, all Processing algorithms, workspace construction, and plugin load. `qgis`-marked tests run under a QGIS Python with the plugin importable; CI runs the offline suite.
 
-### QGIS manual smoke (not in CI)
+## Documentation
 
-Validated `dist/lunar_gis.zip` (18 entries, `lunar_gis/` top-level) via `Plugins > Install from ZIP` on Windows QGIS 4.0.1 — dock, icon, and `layer_summaries` smoke passed `2026-09-14` (see `docs/adr/ADR-0005-build-toolchain.md`). Automated QGIS GUI harness is deferred per `docs/adr/ADR-0006-quality-gate.md`.
+- `docs/architecture/OVERVIEW.md` — system overview
+- `docs/architecture/MILESTONES.md` — milestone status
+- `docs/adr/` — architecture decision records (index in `docs/adr/README.md`)
+- `docs/research/M4-DATA-ENGINE-DESIGN.md` — data engine design + implementation notes
+- `docs/security/SECURITY_MODEL.md` — security model
+- `docs/providers/PROVIDER_CONTRACT.md` — provider contract
+
+## Limitations
+
+- Multi-step transformation chains beyond length 3 are rejected (v1 bound).
+- No `merge`/mosaic op: tiled partials are MISSING by design (documented in M4 §8).
+- Providers requiring credentials are unsupported (no vault; AUTH_REQUIRED fails closed).
+- Live LLM calls never run in CI (deterministic fixtures/mocks only).
+- `qgis`-marked tests skip without a QGIS runtime.
 
 ## License
 
