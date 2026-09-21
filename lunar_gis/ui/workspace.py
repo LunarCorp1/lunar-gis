@@ -11,6 +11,7 @@ keyboard-focusable controls in layout order, system palette only.
 
 from __future__ import annotations
 
+import html
 import json
 from typing import Any
 
@@ -125,12 +126,19 @@ class LunarGISWorkspace(QWidget):
         request = self.chat_input.text().strip()
         if not request:
             return
-        self.chat_log.append(f"<b>You:</b> {request}")
+        self.chat_log.append("<b>You:</b> " + html.escape(request))
         self.chat_input.clear()
         plan = ctrl.plan_request(request, self.registry)
-        self.chat_log.append(plan["explanation"])
+        if not plan["ok"]:
+            # Hard provider/config error: surface it, never mislabel as offline.
+            self.chat_log.append("<b>AI request failed:</b> " + html.escape(str(plan.get("error", "unknown error"))))
+            self.chat_log.append(
+                "<i>Check Settings (API key, model) and connectivity. Offline tools remain available in their tabs.</i>"
+            )
+            return
+        self.chat_log.append(html.escape(plan["explanation"]))
         for warning in plan.get("warnings", ()):
-            self.chat_log.append(f"<i>Note: {warning}</i>")
+            self.chat_log.append("<i>Note: " + html.escape(str(warning)) + "</i>")
         for call in plan.get("tool_calls", ()):
             name = call.get("tool_name", "?")
             if name in ("data.describe_project", "data.check_requirement"):

@@ -19,6 +19,7 @@ from lunar_gis.ai.contracts import (
     AIConfig,
     AIToolCall,
     ContextSegment,
+    OFFLINE_FALLBACK_ERRORS,
     PlanResult,
     TrustLabel,
 )
@@ -124,13 +125,22 @@ def plan_with_ai(
         ]
     ok, payload = openrouter_module.chat_completion(messages, config, api_key=api_key, tools=tools)
     if not ok:
-        offline = plan_offline(user_request, segments)
+        error_code = str(payload.get("error", "?"))
+        if error_code in OFFLINE_FALLBACK_ERRORS:
+            offline = plan_offline(user_request, segments)
+            return PlanResult(
+                ok=offline.ok,
+                explanation=offline.explanation,
+                requirement=offline.requirement,
+                tool_calls=offline.tool_calls,
+                warnings=offline.warnings + (f"ai-error:{error_code}",),
+            )
+        # Config/credential/content errors must surface — a misleading
+        # "offline plan" would claim no AI is configured while Settings
+        # says otherwise.
         return PlanResult(
-            ok=offline.ok,
-            explanation=offline.explanation,
-            requirement=offline.requirement,
-            tool_calls=offline.tool_calls,
-            warnings=offline.warnings + (f"ai-error:{payload.get('error', '?')}",),
+            ok=False,
+            error=f"{error_code}: {payload.get('detail', 'provider request failed')}",
         )
     parsed_ok, parsed = openrouter_module.parse_response(payload, model=config.model)
     if not parsed_ok:

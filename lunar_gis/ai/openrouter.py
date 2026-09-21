@@ -9,6 +9,12 @@
   records, never echoed in errors, never included in model context
 - redirects disabled (no redirect chain to hijack); resolved-IP
   blocking reuses the provider transport validator
+- precise error taxonomy: AUTH_FAILED (401/403), ENDPOINT_NOT_FOUND
+  (404), RATE_LIMITED (429), SERVER_ERROR (5xx), TLS_FAILED,
+  NETWORK_UNREACHABLE, PROVIDER_OFFLINE (DNS/other) — auth and config
+  failures are never collapsed into "offline"
+- environment proxies honored (HTTP_PROXY/HTTPS_PROXY/NO_PROXY);
+  provider JSON error messages surfaced truncated and key-free
 - responses parsed defensively: invalid JSON / missing choices /
   malformed tool calls → INVALID_RESPONSE (fail-closed, never guessed)
 
@@ -83,6 +89,70 @@ def _redacted_error(detail: str) -> str:
     return detail[:200]
 
 
+def _provider_message(raw: bytes) -> str:
+    """Extract OpenRouter's JSON error message (truncated, key-free).
+
+    The body is provider-generated diagnostics (e.g. "Invalid API key");
+    it never contains our secret. Malformed bodies degrade to "".
+    """
+    try:
+        payload = json.loads(raw[:4096].decode("utf-8", errors="replace"))
+    except ValueError:
+        return ""
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            return str(error["message"])[:200]
+        if isinstance(error, str):
+            return str(error)[:200]
+    return ""
+
+
+def _classify_http_error(code: int, body: bytes) -> tuple[str, str]:
+    """Map HTTP status to (error_code, detail). Never collapses auth."""
+    message = _provider_message(body)
+    suffix = f": {message}" if message else ""
+    if code in (401, 403):
+        return AIErrorCode.AUTH_FAILED.value, f"http-{code}{suffix} (check API key)"
+    if code == 404:
+        return AIErrorCode.ENDPOINT_NOT_FOUND.value, f"http-404{suffix} (check model/endpoint)"
+    if code == 429:
+        return AIErrorCode.RATE_LIMITED.value, f"http-429{suffix}"
+    if 500 <= code <= 599:
+        return AIErrorCode.SERVER_ERROR.value, f"http-{code}{suffix}"
+    return AIErrorCode.PROVIDER_OFFLINE.value, f"http-{code}{suffix}"
+
+
+def _classify_url_error(reason: Any) -> tuple[str, str]:
+    """Distinguish TLS / DNS / connection failures (never one bucket)."""
+    import socket
+    import ssl
+
+    text = str(reason)
+    if isinstance(reason, ssl.SSLError):
+        return AIErrorCode.TLS_FAILED.value, f"tls-failed: {text[:120]}"
+    if isinstance(reason, socket.gaierror):
+        return AIErrorCode.PROVIDER_OFFLINE.value, f"dns-failed: {text[:120]}"
+    if isinstance(reason, (ConnectionError, socket.timeout, TimeoutError)):
+        return AIErrorCode.NETWORK_UNREACHABLE.value, f"connection-failed: {text[:120]}"
+    return AIErrorCode.PROVIDER_OFFLINE.value, _redacted_error(text)
+
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    """Opener honoring environment proxies (HTTP_PROXY/HTTPS_PROXY/NO_PROXY).
+
+    Note: QGIS desktop proxy settings are not honored here (M4 §13
+    transport note); environments requiring a proxy must export the
+    standard variables. Proxy use is reported in diagnostics, never the
+    key.
+    """
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler(),
+        urllib.request.HTTPHandler(),
+        urllib.request.HTTPSHandler(),
+    )
+
+
 def chat_completion(
     messages: list[dict[str, Any]],
     config: AIConfig,
@@ -121,21 +191,26 @@ def chat_completion(
             "X-Title": "Lunar GIS",
         },
     )
-    opener = urllib.request.build_opener(urllib.request.HTTPHandler(), urllib.request.HTTPSHandler())
+    opener = _build_opener()
     try:
         with opener.open(request, timeout=config.timeout_s) as response:
             raw = response.read(1024 * 1024)
             status = int(response.status)
     except urllib.error.HTTPError as exc:
-        if exc.code == 429:
-            return False, {"error": AIErrorCode.RATE_LIMITED.value, "detail": "http-429"}
-        return False, {"error": AIErrorCode.PROVIDER_OFFLINE.value, "detail": f"http-{exc.code}"}
+        try:
+            error_body = exc.read(4096)
+        except Exception:
+            error_body = b""
+        code, detail = _classify_http_error(int(exc.code), error_body)
+        return False, {"error": code, "detail": detail}
     except urllib.error.URLError as exc:
-        return False, {"error": AIErrorCode.PROVIDER_OFFLINE.value, "detail": _redacted_error(str(exc.reason))}
-    except (TimeoutError, OSError):
-        return False, {"error": AIErrorCode.TIMEOUT.value, "detail": "transport-timeout"}
+        code, detail = _classify_url_error(exc.reason)
+        return False, {"error": code, "detail": detail}
+    except (TimeoutError, OSError) as exc:
+        return False, {"error": AIErrorCode.TIMEOUT.value, "detail": f"transport-timeout: {type(exc).__name__}"}
     if status != 200:
-        return False, {"error": AIErrorCode.PROVIDER_OFFLINE.value, "detail": f"http-{status}"}
+        code, detail = _classify_http_error(status, raw)
+        return False, {"error": code, "detail": detail}
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):

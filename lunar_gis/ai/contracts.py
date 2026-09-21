@@ -41,7 +41,21 @@ class AIRole(str, Enum):
 
 
 class AIErrorCode(str, Enum):
+    """Closed AI error taxonomy (distinguish, never collapse).
+
+    Genuinely-unavailable (offline fallback applies): PROVIDER_OFFLINE,
+    NETWORK_UNREACHABLE, TIMEOUT, SERVER_ERROR, RATE_LIMITED.
+    Configuration/credential/content (hard error, no silent fallback):
+    NO_API_KEY, AUTH_FAILED, ENDPOINT_NOT_FOUND, INVALID_RESPONSE,
+    MALFORMED_TOOL_CALL.
+    """
+
     NO_API_KEY = "NO_API_KEY"
+    AUTH_FAILED = "AUTH_FAILED"
+    ENDPOINT_NOT_FOUND = "ENDPOINT_NOT_FOUND"
+    SERVER_ERROR = "SERVER_ERROR"
+    NETWORK_UNREACHABLE = "NETWORK_UNREACHABLE"
+    TLS_FAILED = "TLS_FAILED"
     PROVIDER_OFFLINE = "PROVIDER_OFFLINE"
     TIMEOUT = "TIMEOUT"
     RATE_LIMITED = "RATE_LIMITED"
@@ -50,6 +64,21 @@ class AIErrorCode(str, Enum):
     MALFORMED_TOOL_CALL = "MALFORMED_TOOL_CALL"
     UNSUPPORTED_TOOL_VERSION = "UNSUPPORTED_TOOL_VERSION"
     UNAUTHORIZED_OPERATION = "UNAUTHORIZED_OPERATION"
+
+
+# Error classes for which the deterministic offline planner is a
+# legitimate fallback (provider genuinely unreachable/transient).
+# Auth/config/content errors must surface, never silently degrade.
+OFFLINE_FALLBACK_ERRORS: frozenset[str] = frozenset(
+    {
+        AIErrorCode.PROVIDER_OFFLINE.value,
+        AIErrorCode.NETWORK_UNREACHABLE.value,
+        AIErrorCode.TLS_FAILED.value,
+        AIErrorCode.TIMEOUT.value,
+        AIErrorCode.SERVER_ERROR.value,
+        AIErrorCode.RATE_LIMITED.value,
+    }
+)
 
 
 class TrustLabel(str, Enum):
@@ -162,6 +191,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "AIRole",
     "AIErrorCode",
+    "OFFLINE_FALLBACK_ERRORS",
     "TrustLabel",
     "ContextSegment",
     "AIMessage",
