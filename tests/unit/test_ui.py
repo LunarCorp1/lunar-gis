@@ -568,6 +568,66 @@ class TestAffirmation:
             assert is_affirmation(text) is False, text
 
 
+class TestProgressState:
+    def test_update_snapshot_cancel(self) -> None:
+        from lunar_gis.ui.tasks import ProgressState
+
+        state = ProgressState()
+        assert state.cancelled() is False
+        state.update(50, 100)
+        snapshot = state.snapshot()
+        assert snapshot["received"] == 50
+        assert snapshot["total"] == 100
+        assert snapshot["fraction"] == 0.5
+        state.cancel()
+        assert state.cancelled() is True
+        assert state.snapshot()["cancelled"] is True
+
+    def test_unknown_total(self) -> None:
+        from lunar_gis.ui.tasks import ProgressState
+
+        state = ProgressState()
+        state.update(10, None)
+        assert state.snapshot()["fraction"] is None
+
+    def test_thread_safety_smoke(self) -> None:
+        import threading
+
+        from lunar_gis.ui.tasks import ProgressState
+
+        state = ProgressState()
+
+        def worker() -> None:
+            for i in range(100):
+                state.update(i, 100)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert state.snapshot()["received"] < 100
+
+    def test_create_task_needs_qgis(self) -> None:
+        import sys
+
+        from lunar_gis.ui import tasks as tasks_module
+
+        assert "qgis" not in sys.modules or sys.modules.get("qgis") is None
+        with pytest.raises(ImportError):
+            tasks_module.create_task("x", lambda: None)
+
+
+@pytest.mark.qgis
+class TestFunctionTask:
+    def test_task_runs_offline_function(self) -> None:
+        pytest.importorskip("qgis.core")
+        from lunar_gis.ui.tasks import create_task
+
+        task = create_task("demo", lambda a, b: a + b, 2, 3)
+        assert task.run() is True
+
+
 class TestImportBoundary:
     def test_controller_qgis_free(self) -> None:
         import pathlib

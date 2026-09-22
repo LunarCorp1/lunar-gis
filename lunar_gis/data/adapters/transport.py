@@ -35,7 +35,9 @@ import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 MAX_REDIRECTS = 5
 CHUNK_SIZE = 65536
@@ -140,6 +142,7 @@ def fetch_url(
     *,
     timeout_s: float = 30.0,
     max_bytes: int = 500 * 1024 * 1024,
+    progress: ProgressCallback | None = None,
 ) -> FetchResult:
     """GET a URL through the full egress validator. Redirects re-validated."""
     ok, reason = validate_egress_url(url, allowlist)
@@ -166,17 +169,9 @@ def fetch_url(
                     continue
                 if status != 200:
                     return FetchResult(ok=False, status=status, error=f"http-{status}")
-                chunks: list[bytes] = []
-                total = 0
-                while True:
-                    chunk = response.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > max_bytes:
-                        return FetchResult(ok=False, status=status, error="byte-cap-exceeded")
-                    chunks.append(chunk)
-                body = b"".join(chunks)
+                body, read_error = read_body_capped(response, max_bytes, progress)
+                if body is None:
+                    return FetchResult(ok=False, status=status, error=read_error or "read-failed")
                 return FetchResult(
                     ok=True,
                     status=status,
@@ -193,6 +188,80 @@ def fetch_url(
             return FetchResult(ok=False, error=f"transport-failed: {type(exc).__name__}")
 
 
+class ProgressCallback(Protocol):
+    """Sink for byte progress; ``cancelled()`` aborts the transfer."""
+
+    def update(self, received_bytes: int, total_bytes: int | None) -> None: ...
+    def cancelled(self) -> bool: ...
+
+
+_current_progress: ContextVar[ProgressCallback | None] = ContextVar("lunar_progress", default=None)
+
+
+@contextmanager
+def progress_scope(progress: ProgressCallback | None) -> Any:
+    """Ambient progress channel for background tasks.
+
+    Explicit ``progress=`` parameters always win; this scope only fills
+    the gap where frozen signatures (adapter interface §6) cannot carry
+    one. Set around worker-thread handler calls; reset on exit. Never
+    used for QGIS objects — bytes bookkeeping only.
+    """
+    token = _current_progress.set(progress)
+    try:
+        yield progress
+    finally:
+        _current_progress.reset(token)
+
+
+def read_body_capped(
+    response: Any,
+    max_bytes: int,
+    progress: ProgressCallback | None = None,
+) -> tuple[bytes | None, str | None]:
+    """Read a response body with byte cap, progress, and cancellation.
+
+    Returns (body, error). Pure over the response object: no sockets,
+    no QGIS, fully unit-testable. Cancellation is cooperative (checked
+    per chunk); the caller closes the response on abort. When no
+    explicit callback is given, the ambient ``progress_scope`` channel
+    (background-task downloads) applies.
+    """
+    active = progress if progress is not None else _current_progress.get()
+    try:
+        length = response.headers.get("Content-Length", "")
+        total = int(length) if str(length).isdigit() else None
+    except Exception:
+        total = None
+    chunks: list[bytes] = []
+    received = 0
+    while True:
+        if active is not None and active.cancelled():
+            return None, "cancelled"
+        try:
+            chunk = response.read(CHUNK_SIZE)
+        except Exception as exc:
+            return None, f"read-failed: {type(exc).__name__}"
+        if not chunk:
+            break
+        received += len(chunk)
+        if received > max_bytes:
+            return None, "byte-cap-exceeded"
+        chunks.append(chunk)
+        if active is not None and not _report_progress(active, received, total):
+            return None, "progress-failed"
+    return b"".join(chunks), None
+
+
+def _report_progress(active: Any, received: int, total: int | None) -> bool:
+    """Deliver one progress update; False when the sink is broken."""
+    try:
+        active.update(received, total)
+        return True
+    except Exception:
+        return False
+
+
 def download_to_sandbox(
     url: str,
     allowlist: tuple[str, ...],
@@ -202,6 +271,7 @@ def download_to_sandbox(
     timeout_s: float = 30.0,
     max_bytes: int = 500 * 1024 * 1024,
     expected_sha256: str | None = None,
+    progress: ProgressCallback | None = None,
 ) -> tuple[bool, dict[str, Any]]:
     """Fetch a URL into the sandbox (safe-joined). Returns (ok, payload)."""
     from lunar_gis.data.adapters.base import ProviderError
@@ -209,7 +279,7 @@ def download_to_sandbox(
     target = _safe_join(sandbox_dir, relpath)
     if target is None:
         return False, {"error": ProviderError.INVALID_QUERY.value, "detail": "path escapes sandbox"}
-    result = fetch_url(url, allowlist, timeout_s=timeout_s, max_bytes=max_bytes)
+    result = fetch_url(url, allowlist, timeout_s=timeout_s, max_bytes=max_bytes, progress=progress)
     if not result.ok:
         code = (
             ProviderError.TIMEOUT
@@ -355,10 +425,13 @@ def safe_extract_zip(
 
 __all__ = [
     "FetchResult",
+    "ProgressCallback",
+    "progress_scope",
     "validate_egress_url",
     "resolve_and_check",
     "audit_url",
     "fetch_url",
+    "read_body_capped",
     "download_to_sandbox",
     "safe_extract_zip",
 ]

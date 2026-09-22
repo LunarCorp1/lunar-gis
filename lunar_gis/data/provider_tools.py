@@ -72,12 +72,14 @@ DOWNLOAD_DATASET_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "ok": {"type": "boolean"},
+        "sandbox_dir": {"type": "string"},
         "sandbox_relpath": {"type": "string"},
         "size_bytes": {"type": "integer"},
         "sha256": {"type": "string"},
         "provenance_ref": {"type": "string"},
         "error": {"type": "string"},
         "provider_id": {"type": "string"},
+        "sweep": {"type": "object"},
     },
     "required": ["ok", "provider_id"],
     "additionalProperties": False,
@@ -190,6 +192,15 @@ def download_dataset_handler(input_data: dict[str, Any]) -> dict[str, Any]:
         sandbox_dir = tempfile.mkdtemp(prefix="lunar-acquire-", dir=base)
     except OSError as exc:
         return {"ok": False, "provider_id": provider_id, "error": f"sandbox-failed: {exc}"}
+    # Orphan sweep on every acquisition (M4 §9 lease): best-effort, never
+    # fails the download, recorded in the output for audit.
+    sweep_record: dict[str, Any] = {}
+    try:
+        from lunar_gis.data.sandbox import sweep_sandboxes
+
+        sweep_record = sweep_sandboxes(os.path.dirname(sandbox_dir))
+    except Exception:
+        sweep_record = {}
     try:
         ok, payload = adapter.download(dataset_id, asset_id, sandbox_dir)
     except Exception as exc:
@@ -252,6 +263,7 @@ def download_dataset_handler(input_data: dict[str, Any]) -> dict[str, Any]:
         "size_bytes": verified_bytes,
         "sha256": verified_sha,
         "provenance_ref": provenance_ref,
+        "sweep": sweep_record,
     }
 
 

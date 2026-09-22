@@ -95,4 +95,66 @@ class ApiKeyDialog(QDialog):
         return str(self.key_edit.text()).strip()
 
 
-__all__ = ["ConfirmationDialog", "ApiKeyDialog"]
+class AssetConfirmDialog(QDialog):
+    """Pick one asset and confirm its download (single dialog, full info).
+
+    Shows dataset identity, license, and per-asset id/size. Confirm binds
+    a scoped ConfirmationArtifact for data.download_dataset with the
+    chosen asset — the executor rejects anything else for this artifact.
+    """
+
+    def __init__(
+        self,
+        provider_id: str,
+        dataset_id: str,
+        title: str,
+        license_spdx: str,
+        assets: list[dict[str, Any]],
+        input_base: dict[str, Any],
+        context: ToolExecutionContext,
+        registry: ToolRegistry,
+        parent: Any = None,
+    ) -> None:
+        super().__init__(parent)
+        from qgis.PyQt.QtWidgets import QComboBox
+
+        self._input_base = dict(input_base)
+        self._context = context
+        self._registry = registry
+        self.setWindowTitle("Confirm download")
+        self.setMinimumWidth(480)
+        layout = QVBoxLayout(self)
+        info = QTextBrowser(self)
+        info.setAccessibleName("Dataset details")
+        info.setPlainText(
+            f"Provider: {provider_id}\nDataset: {dataset_id}\nTitle: {title}\nLicense: {license_spdx}\n\n"
+            "The file downloads into a fresh sandbox, is checksum-verified, and never executes."
+        )
+        layout.addWidget(info)
+        form = QFormLayout()
+        self.asset_combo = QComboBox(self)
+        self.asset_combo.setAccessibleName("Asset to download")
+        for asset in assets:
+            label = f"{asset.get('asset_id', '?')} ({asset.get('size_bytes', '?')} bytes)"
+            self.asset_combo.addItem(label, asset.get("asset_id", ""))
+        form.addRow("Asset:", self.asset_combo)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Confirm and download")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def artifact(self) -> ConfirmationArtifact | None:
+        """Scoped artifact for the chosen asset — call only after Accepted."""
+        from lunar_gis.ui.controller import make_confirmation
+
+        payload = dict(self._input_base)
+        payload["asset_id"] = self.asset_combo.currentData()
+        return make_confirmation("data.download_dataset", payload, self._context, self._registry)
+
+    def chosen_asset(self) -> str:
+        return str(self.asset_combo.currentData() or "")
+
+
+__all__ = ["ConfirmationDialog", "ApiKeyDialog", "AssetConfirmDialog"]

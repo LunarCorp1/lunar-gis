@@ -438,6 +438,109 @@ class TestProviderTools:
         assert "unverified" in result["error"]
 
 
+class TestReadBodyCapped:
+    def _response(self, chunks, length=None):
+        class FakeHeaders:
+            def get(self, name, default=""):
+                return str(length) if name == "Content-Length" and length is not None else default
+
+        class FakeResponse:
+            def __init__(self):
+                self.headers = FakeHeaders()
+                self._chunks = list(chunks)
+
+            def read(self, size):
+                return self._chunks.pop(0) if self._chunks else b""
+
+        return FakeResponse()
+
+    def _progress(self, cancel_at=None):
+        calls = {"updates": [], "cancel": False}
+
+        class Sink:
+            def update(self, received, total):
+                calls["updates"].append((received, total))
+                if cancel_at is not None and received >= cancel_at:
+                    calls["cancel"] = True
+
+            def cancelled(self):
+                return calls["cancel"]
+
+        return Sink(), calls
+
+    def test_full_read_with_progress(self) -> None:
+        from lunar_gis.data.adapters.transport import read_body_capped
+
+        sink, calls = self._progress()
+        body, error = read_body_capped(self._response([b"ab", b"cde"], length=5), 100, sink)
+        assert error is None
+        assert body == b"abcde"
+        assert calls["updates"][-1] == (5, 5)
+
+    def test_broken_sink_aborts(self) -> None:
+        from lunar_gis.data.adapters.transport import read_body_capped
+
+        class BrokenSink:
+            def update(self, received, total):
+                raise RuntimeError("ui gone")
+
+            def cancelled(self):
+                return False
+
+        body, error = read_body_capped(self._response([b"ab", b"cde"], length=5), 100, BrokenSink())
+        assert body is None
+        assert error == "progress-failed"
+
+    def test_cancel_aborts(self) -> None:
+        from lunar_gis.data.adapters.transport import read_body_capped
+
+        sink, _ = self._progress(cancel_at=2)
+        body, error = read_body_capped(self._response([b"ab", b"cde"]), 100, sink)
+        assert body is None
+        assert error == "cancelled"
+
+    def test_byte_cap(self) -> None:
+        from lunar_gis.data.adapters.transport import read_body_capped
+
+        body, error = read_body_capped(self._response([b"ab", b"cde"]), 4)
+        assert body is None
+        assert error == "byte-cap-exceeded"
+
+    def test_read_error(self) -> None:
+        from lunar_gis.data.adapters.transport import read_body_capped
+
+        class BadResponse:
+            headers = {}
+
+            def read(self, size):
+                raise OSError("boom")
+
+        body, error = read_body_capped(BadResponse(), 100)
+        assert body is None
+        assert error and error.startswith("read-failed")
+
+    def test_ambient_scope_applies(self) -> None:
+        from lunar_gis.data.adapters.transport import progress_scope, read_body_capped
+
+        sink, calls = self._progress()
+        with progress_scope(sink):
+            body, error = read_body_capped(self._response([b"ab"], length=2), 100)
+        assert error is None
+        assert body == b"ab"
+        assert calls["updates"] == [(2, 2)]
+
+    def test_explicit_beats_ambient(self) -> None:
+        from lunar_gis.data.adapters.transport import progress_scope, read_body_capped
+
+        ambient_sink, ambient_calls = self._progress()
+        explicit_sink, explicit_calls = self._progress()
+        with progress_scope(ambient_sink):
+            body, error = read_body_capped(self._response([b"ab"], length=2), 100, explicit_sink)
+        assert error is None and body == b"ab"
+        assert explicit_calls["updates"] == [(2, 2)]
+        assert ambient_calls["updates"] == []
+
+
 class TestImportBoundary:
     def test_no_forbidden_in_base_transport(self) -> None:
         import pathlib

@@ -15,12 +15,16 @@ import html
 import json
 from typing import Any
 
+from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QProgressBar,
     QPushButton,
     QTabWidget,
     QTextBrowser,
@@ -49,6 +53,9 @@ class LunarGISWorkspace(QWidget):
         self.conversation: list[dict[str, str]] = []
         self.pending_high: list[dict[str, Any]] = []
         self.last_request: str = ""
+        self._active_task: Any = None
+        self._task_state: Any = None
+        self._progress_timer: QTimer | None = None
         self.tabs = QTabWidget(self)
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
@@ -91,6 +98,115 @@ class LunarGISWorkspace(QWidget):
         self.results_log.append(text)
         self.results_browser.append(text)
 
+    def _run_callable_background(self, title: str, job: Any, on_done: Any) -> None:
+        """Run a thread-safe callable (files/network/pure only) off-GUI.
+
+        ``job`` takes no arguments and returns a JSON-compatible dict.
+        Results return via Qt signals on the GUI thread.
+        """
+        from lunar_gis.ui.tasks import ProgressState, create_task
+
+        try:
+            from qgis.core import QgsApplication
+        except ImportError:
+            on_done({"ok": False, "error": "qgis-runtime-unavailable"})
+            return
+        state = ProgressState()
+        self._task_state = state
+
+        def guarded() -> dict[str, Any]:
+            from lunar_gis.data.adapters.transport import progress_scope
+
+            with progress_scope(state):
+                try:
+                    outcome = job()
+                except Exception as exc:
+                    return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                return outcome if isinstance(outcome, dict) else {"ok": True, "result": outcome}
+
+        task = create_task(title, guarded)
+        task.succeeded.connect(lambda outcome: self._finish_background(outcome.get("result", {}), on_done))
+        task.failed.connect(lambda message: self._finish_background({"ok": False, "error": message}, on_done))
+        self._active_task = task
+        self._task_status_label.setText(f"{title}…")
+        self._task_progress.setRange(0, 0)
+        self._task_progress.setValue(0)
+        self._task_row_container.setVisible(True)
+        if self._progress_timer is None:
+            self._progress_timer = QTimer(self)
+            self._progress_timer.timeout.connect(self._poll_task_progress)
+        self._progress_timer.start(200)
+        QgsApplication.taskManager().addTask(task)
+
+    def _run_background(
+        self,
+        title: str,
+        tool_name: str,
+        input_data: dict[str, Any],
+        on_done: Any,
+        confirmation: ConfirmationArtifact | None = None,
+    ) -> None:
+        """Run one governed tool call off the GUI thread with progress.
+
+        A fresh assistant executor + context per job (never shared live
+        state); results return via Qt signals on the GUI thread.
+        ``on_done`` receives the ``run_tool`` result dict.
+        """
+        registry, context = self.registry, ctrl.default_context()
+
+        def job() -> dict[str, Any]:
+            executor = ctrl.create_assistant_executor(registry)
+            return ctrl.run_tool(executor, tool_name, dict(input_data), context, confirmation)
+
+        self._run_callable_background(title, job, on_done)
+
+    def _poll_task_progress(self) -> None:
+        state = self._task_state
+        if state is None:
+            return
+        snapshot = state.snapshot()
+        total = snapshot["total"]
+        if total:
+            self._task_progress.setRange(0, 100)
+            self._task_progress.setValue(int(100 * (snapshot["fraction"] or 0)))
+        received = snapshot["received"]
+        unit = "MB" if received > 1024 * 1024 else "KB"
+        amount = received / (1024 * 1024) if unit == "MB" else received / 1024
+        self._task_status_label.setText(f"{self._task_title()}: {amount:.1f} {unit}")
+
+    def _task_title(self) -> str:
+        task = self._active_task
+        try:
+            return str(task.description()) if task is not None else "Task"
+        except Exception:
+            return "Task"
+
+    def _finish_background(self, result: dict[str, Any], on_done: Any) -> None:
+        if self._progress_timer is not None:
+            self._progress_timer.stop()
+        self._task_row_container.setVisible(False)
+        self._active_task = None
+        self._task_state = None
+        on_done(result)
+
+    def _cancel_background(self) -> None:
+        if self._task_state is not None:
+            self._task_state.cancel()
+        task = self._active_task
+        if task is not None:
+            cancelled = self._try_task_cancel(task)
+            self._task_status_label.setText("Cancelling…" if cancelled else "Cancel requested")
+        else:
+            self._task_status_label.setText("Cancelling…")
+
+    @staticmethod
+    def _try_task_cancel(task: Any) -> bool:
+        try:
+            task.cancel()
+            return True
+        except Exception:
+            return False
+
     def _parse_json_or(self, raw: str, what: str) -> tuple[Any | None, str]:
         try:
             return json.loads(raw), ""
@@ -122,6 +238,13 @@ class LunarGISWorkspace(QWidget):
         row.addWidget(self.chat_input)
         row.addWidget(send)
         layout.addLayout(row)
+        self.pending_box = QVBoxLayout()
+        pending_label = QLabel("Pending confirmations:")
+        pending_label.setAccessibleName("Pending confirmations")
+        layout.addWidget(pending_label)
+        pending_container = QWidget()
+        pending_container.setLayout(self.pending_box)
+        layout.addWidget(pending_container)
         self.tabs.addTab(tab, "Assistant")
 
     def _refresh_ai_status(self) -> None:
@@ -168,6 +291,53 @@ class LunarGISWorkspace(QWidget):
                 + "</code> — say “yes” to confirm here, or run it from its tab."
             )
         self.pending_high = list(plan.get("tool_calls", ()))
+        self.refresh_pending_panel()
+
+    def refresh_pending_panel(self) -> None:
+        """Rebuild Approve/Decline rows for pending HIGH-risk proposals."""
+        from functools import partial
+
+        while self.pending_box.count():
+            child = self.pending_box.takeAt(0)
+            widget = child.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for index, call in enumerate(self.pending_high):
+            name = call.get("tool_name", "?")
+            row = QHBoxLayout()
+            label = QLabel(name)
+            label.setAccessibleName(f"Pending action {name}")
+            approve = QPushButton("Approve")
+            approve.setAccessibleName(f"Approve {name}")
+            approve.clicked.connect(partial(self._approve_pending, index))
+            decline = QPushButton("Decline")
+            decline.setAccessibleName(f"Decline {name}")
+            decline.clicked.connect(partial(self._decline_pending, index))
+            row.addWidget(label)
+            row.addWidget(approve)
+            row.addWidget(decline)
+            container = QWidget()
+            container.setLayout(row)
+            self.pending_box.addWidget(container)
+
+    def _approve_pending(self, index: int) -> None:
+        if not 0 <= index < len(self.pending_high):
+            return
+        call = self.pending_high.pop(index)
+        result = self._run(call.get("tool_name", "?"), call.get("arguments", {}))
+        status = "ok" if result.get("ok") and result.get("handler_ok", True) else "failed"
+        self.chat_log.append(
+            "Confirmed action <code>" + html.escape(call.get("tool_name", "?")) + ": " + status + "</code>"
+        )
+        self._log(f"{call.get('tool_name')} → {json.dumps(result.get('output', result), default=str)[:2000]}")
+        self.refresh_pending_panel()
+
+    def _decline_pending(self, index: int) -> None:
+        if not 0 <= index < len(self.pending_high):
+            return
+        call = self.pending_high.pop(index)
+        self.chat_log.append("<i>Declined: " + html.escape(call.get("tool_name", "?")) + "</i>")
+        self.refresh_pending_panel()
 
     def _confirm_pending(self) -> None:
         """Execute pending HIGH-risk proposals via dialog confirmations,
@@ -190,6 +360,7 @@ class LunarGISWorkspace(QWidget):
                 remaining.append(call)
                 break
         self.pending_high = remaining
+        self.refresh_pending_panel()
         if any_ok and self.last_request:
             follow = ctrl.plan_request(self.last_request, self.registry, history=self.conversation, max_rounds=1)
             self._render_plan(follow)
@@ -280,10 +451,46 @@ class LunarGISWorkspace(QWidget):
         prov_row.addWidget(self.search_edit)
         prov_row.addWidget(search)
         layout.addLayout(prov_row)
+        self._task_row = QHBoxLayout()
+        self._task_status_label = QLabel("Idle")
+        self._task_status_label.setAccessibleName("Background task status")
+        self._task_progress = QProgressBar()
+        self._task_progress.setAccessibleName("Background task progress")
+        self._task_progress.setRange(0, 100)
+        self._task_progress.setValue(0)
+        cancel = QPushButton("Cancel")
+        cancel.setAccessibleName("Cancel background task")
+        cancel.clicked.connect(self._cancel_background)
+        self._task_row.addWidget(self._task_status_label)
+        self._task_row.addWidget(self._task_progress)
+        self._task_row.addWidget(cancel)
+        task_row_container = QWidget()
+        task_row_container.setLayout(self._task_row)
+        task_row_container.setVisible(False)
+        self._task_row_container = task_row_container
+        layout.addWidget(task_row_container)
+        self.results_list = QListWidget()
+        self.results_list.setAccessibleName("Catalog results")
+        self.results_list.itemSelectionChanged.connect(self._on_result_selected)
+        layout.addWidget(self.results_list)
+        dl_row = QHBoxLayout()
+        self.download_button = QPushButton("Download selected")
+        self.download_button.setAccessibleName("Download selected dataset")
+        self.download_button.setEnabled(False)
+        self.download_button.clicked.connect(self._on_download_selected)
+        self.load_button = QPushButton("Load into project")
+        self.load_button.setAccessibleName("Load downloaded file into project")
+        self.load_button.setEnabled(False)
+        self.load_button.clicked.connect(self._on_load_downloaded)
+        dl_row.addWidget(self.download_button)
+        dl_row.addWidget(self.load_button)
+        layout.addLayout(dl_row)
         self.data_browser = QTextBrowser()
         self.data_browser.setAccessibleName("Data results")
         layout.addWidget(self.data_browser)
         self.tabs.addTab(tab, "Data")
+        self._result_refs: list[dict[str, Any]] = []
+        self._last_download: dict[str, Any] | None = None
 
     def _on_check_requirement(self) -> None:
         requirement, error = self._parse_json_or(self.req_edit.toPlainText(), "Requirement")
@@ -303,13 +510,151 @@ class LunarGISWorkspace(QWidget):
         elif provider_id == "stac.earth-search":
             if query:
                 payload["collection"] = query
-        result = self._run("data.search_catalog", payload)
+        self.download_button.setEnabled(False)
+        self._run_background("Catalog search", "data.search_catalog", payload, self._on_search_done)
+
+    def _on_search_done(self, result: dict[str, Any]) -> None:
         output = (result.get("output") or {}).get("data", result)
-        lines = [f"Search ok={result['ok']} total={(output.get('total') if isinstance(output, dict) else '?')}"]
         results = output.get("results", []) if isinstance(output, dict) else []
-        for item in results[:20]:
-            lines.append(f"• {item.get('title')} [{item.get('dataset_id')}] license={item.get('license_spdx')}")
-        self.data_browser.setPlainText("\n".join(lines))
+        self._result_refs = [r for r in results[:50] if isinstance(r, dict)]
+        self.results_list.clear()
+        for ref in self._result_refs:
+            title = str(ref.get("title", "?"))
+            item = QListWidgetItem(f"{title} [{ref.get('dataset_id', '?')}]")
+            item.setData(Qt.ItemDataRole.UserRole, ref.get("dataset_id", ""))
+            self.results_list.addItem(item)
+        total = output.get("total", len(self._result_refs)) if isinstance(output, dict) else "?"
+        ok = bool(result.get("ok") and result.get("handler_ok", True))
+        self.data_browser.setPlainText(f"Search ok={ok} total={total} ({len(self._result_refs)} shown)")
+        self._log(f"search_catalog → {len(self._result_refs)} results")
+        self._on_result_selected()
+
+    def _on_result_selected(self) -> None:
+        item = self.results_list.currentItem()
+        ref = next(
+            (
+                r
+                for r in self._result_refs
+                if r.get("dataset_id") == (item.data(Qt.ItemDataRole.UserRole) if item else None)
+            ),
+            None,
+        )
+        if ref is None:
+            self.download_button.setEnabled(False)
+            return
+        if ref.get("provider_id") == "osm.nominatim":
+            self.download_button.setEnabled(False)
+            self.download_button.setToolTip("Nominatim supplies geocoding only (no downloadable assets)")
+            return
+        self.download_button.setEnabled(True)
+        self.download_button.setToolTip("")
+
+    def _on_download_selected(self) -> None:
+        item = self.results_list.currentItem()
+        if item is None:
+            return
+        ref = next((r for r in self._result_refs if r.get("dataset_id") == item.data(Qt.ItemDataRole.UserRole)), None)
+        if ref is None:
+            return
+        provider_id = self.provider_combo.currentText()
+        dataset_id = str(ref.get("dataset_id", ""))
+        self.data_browser.setPlainText("Reading dataset metadata…")
+
+        def metadata_job() -> dict[str, Any]:
+            return self._fetch_metadata_sync(provider_id, dataset_id) or {"ok": False, "error": "metadata-failed"}
+
+        self._run_callable_background(
+            "Read metadata", metadata_job, lambda result, _ref=ref: self._on_metadata_done(_ref, result)
+        )
+
+    def _on_metadata_done(self, ref: dict[str, Any], result: dict[str, Any]) -> None:
+        from lunar_gis.ui.dialogs import AssetConfirmDialog
+
+        assets = result.get("asset_ids", []) if isinstance(result, dict) else []
+        if not result.get("ok") or not assets:
+            self.data_browser.setPlainText("Could not read dataset metadata (no downloadable assets).")
+            return
+        provider_id = self.provider_combo.currentText()
+        dataset_id = str(ref.get("dataset_id", ""))
+        dialog = AssetConfirmDialog(
+            provider_id,
+            dataset_id,
+            str(ref.get("title", dataset_id)),
+            str(result.get("license_spdx", "NONE-declared")),
+            assets,
+            {"provider_id": provider_id, "dataset_id": dataset_id},
+            self.context,
+            self.registry,
+            self,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        payload = {
+            "provider_id": provider_id,
+            "dataset_id": dataset_id,
+            "asset_id": dialog.chosen_asset(),
+            "workspace_dir": self._workspace_dir(),
+        }
+        artifact = ctrl.make_confirmation("data.download_dataset", payload, self.context, self.registry)
+        self._run_background("Download dataset", "data.download_dataset", payload, self._on_download_done, artifact)
+
+    def _fetch_metadata_sync(self, provider_id: str, dataset_id: str) -> dict[str, Any] | None:
+        """Small metadata read (runs in worker threads, never on GUI)."""
+        try:
+            from lunar_gis.data.adapters import registry as adapter_registry
+
+            adapter = adapter_registry.get(provider_id)
+            ok, payload = adapter.get_metadata(dataset_id)
+            if not ok:
+                return None
+            assets = []
+            asset_ids = payload.get("asset_ids", [])
+            for asset_id in asset_ids if isinstance(asset_ids, list) else []:
+                assets.append({"asset_id": str(asset_id), "size_bytes": "?"})
+            return {"ok": True, "license_spdx": payload.get("license_spdx", "NONE-declared"), "asset_ids": assets}
+        except Exception:
+            return None
+
+    def _workspace_dir(self) -> str:
+        import os
+        import tempfile
+
+        root = os.path.join(tempfile.gettempdir(), "lunar-gis-workspace")
+        os.makedirs(root, exist_ok=True)
+        return root
+
+    def _on_download_done(self, result: dict[str, Any]) -> None:
+        output = (result.get("output") or {}).get("data", {})
+        ok = bool(result.get("ok") and result.get("handler_ok", True))
+        if not ok:
+            self.data_browser.setPlainText(f"Download failed: {result.get('handler_error') or result.get('error')}")
+            return
+        self._last_download = {
+            "sandbox_dir": output.get("sandbox_dir", ""),
+            "sandbox_relpath": output.get("sandbox_relpath", ""),
+        }
+        self.load_button.setEnabled(True)
+        detail = f"{output.get('size_bytes', '?')} bytes, sha {str(output.get('sha256', ''))[:12]}"
+        self.data_browser.setPlainText(f"Downloaded {output.get('sandbox_relpath', '?')} ({detail})")
+        self._log(f"download_dataset → {detail}")
+
+    def _on_load_downloaded(self) -> None:
+        last = self._last_download or {}
+        result = self._run(
+            "data.load_into_project",
+            {
+                "sandbox_dir": last.get("sandbox_dir", ""),
+                "sandbox_relpath": last.get("sandbox_relpath", ""),
+            },
+        )
+        output = (result.get("output") or {}).get("data", {})
+        ok = bool(result.get("ok") and result.get("handler_ok", True))
+        if not ok:
+            self.data_browser.setPlainText(f"Load failed: {result.get('handler_error') or result.get('error')}")
+            return
+        self.data_browser.setPlainText(f"Loaded layer '{output.get('layer_name')}' ({output.get('layer_id')})")
+        self._log(f"load_into_project → {output.get('layer_name')}")
+        self._on_refresh_project()
 
     # ------------------------------------------------------------------
     # Analysis
@@ -505,23 +850,49 @@ class LunarGISWorkspace(QWidget):
         row.addWidget(set_key)
         row.addWidget(clear_key)
         row.addWidget(refresh)
+        clean = QPushButton("Clean sandbox storage")
+        clean.setAccessibleName("Clean old sandbox storage")
+        clean.clicked.connect(self._on_clean_sandboxes)
+        row.addWidget(clean)
         layout.addLayout(row)
         self.tabs.addTab(tab, "Settings")
         self._on_refresh_settings()
 
     def _on_refresh_settings(self) -> None:
         from lunar_gis.ai import openrouter as openrouter_module
+        from lunar_gis.data.sandbox import format_bytes, sandbox_usage
 
         status = ctrl.ai_status()
+        usage = sandbox_usage(self._workspace_dir())
+        temp_usage = sandbox_usage(self._system_temp())
         lines = [
             f"AI mode: {status['mode']}",
             f"API key configured: {status['configured']}",
             "Privacy: summaries and schemas only leave this machine; raw attributes and geometry never do.",
             "Confirmations: HIGH-risk tools always require explicit confirmation.",
             "Offline: project/data/analysis/provenance/reports/cartography work without AI or network.",
+            f"Sandbox storage: {format_bytes(usage['bytes'])} in {usage['sandbox_count']} directories.",
+            f"System temp storage: {format_bytes(temp_usage['bytes'])} in {temp_usage['sandbox_count']} dirs.",
         ]
         _ = openrouter_module
         self.settings_browser.setPlainText("\n".join(lines))
+
+    def _system_temp(self) -> str:
+        import tempfile
+
+        return tempfile.gettempdir()
+
+    def _on_clean_sandboxes(self) -> None:
+        from lunar_gis.data.sandbox import format_bytes, sweep_sandboxes
+
+        results = []
+        for root in (self._workspace_dir(), self._system_temp()):
+            record = sweep_sandboxes(root, retention_s=0)
+            results.append(
+                f"{root}: removed {len(record.get('removed', []))}, freed {format_bytes(record.get('freed_bytes', 0))}"
+            )
+        self._log("sandbox clean → " + "; ".join(results))
+        self._on_refresh_settings()
 
     def _on_set_key(self) -> None:
         from lunar_gis.ai import openrouter as openrouter_module
