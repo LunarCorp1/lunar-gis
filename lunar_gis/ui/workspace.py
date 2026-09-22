@@ -281,7 +281,11 @@ class LunarGISWorkspace(QWidget):
             self.chat_log.append("<i>Note: " + ctrl.clean_display(str(warning)) + "</i>")
         for entry in plan.get("executed", ()):
             status = "ok" if entry.get("ok") else "failed"
-            self.chat_log.append("<code>" + html.escape(str(entry.get("tool_name", "?"))) + ": " + status + "</code>")
+            line = "<code>" + html.escape(str(entry.get("tool_name", "?"))) + ": " + status + "</code>"
+            if not entry.get("ok"):
+                reason = str(entry.get("summary", ""))[:200] or "see Results tab"
+                line += " — " + html.escape(reason)
+            self.chat_log.append(line)
             self._log(f"{entry.get('tool_name')} → {entry.get('summary', '')[:2000]}")
         for call in plan.get("tool_calls", ()):
             name = call.get("tool_name", "?")

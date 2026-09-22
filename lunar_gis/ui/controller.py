@@ -319,15 +319,17 @@ def _strip_machine_blocks(explanation: str) -> str:
 
 
 def clean_display(text: str) -> str:
-    """Unescape-then-escape for transcript display.
+    """Unescape (twice) then escape for transcript display.
 
-    Models echo escaped entities seen in context ("&quot;"); unescaping
-    first resolves those to characters, re-escaping keeps real markup
-    inert. Idempotent-safe against XSS either way.
+    Models echo escaped entities seen in context ("&quot;", sometimes
+    doubly as "&amp;quot;"); resolving twice normalizes both to
+    characters, and the final escape keeps real markup inert.
+    Idempotent-safe against XSS either way.
     """
     import html
 
-    return html.escape(html.unescape(text or ""))
+    once = html.unescape(text or "")
+    return html.escape(html.unescape(once))
 
 
 def _narrate_executed(executed: list[dict[str, Any]]) -> str:
@@ -338,7 +340,8 @@ def _narrate_executed(executed: list[dict[str, Any]]) -> str:
     for entry in executed:
         name = entry.get("tool_name", "?")
         if not entry.get("ok"):
-            parts.append(f"{name} failed.")
+            reason = str(entry.get("summary", "")).replace("failed:", "").strip()[:200]
+            parts.append(f"{name} failed ({reason})." if reason else f"{name} failed.")
             continue
         payload = entry.get("output") or {}
         if not isinstance(payload, dict) or not payload:

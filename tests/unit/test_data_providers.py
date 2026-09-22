@@ -347,6 +347,23 @@ class TestRegistry:
         adapter = adapter_registry.get("stac.earth-search")
         assert "earth-search.aws.element84.com" in adapter.host_allowlist()
 
+    def test_search_results_carry_asset_ids(self, monkeypatch) -> None:
+        from lunar_gis.data.adapters.base import SearchQuery
+        from lunar_gis.data.adapters.stac import EarthSearchAdapter
+
+        feature = {
+            "id": "S1C_test",
+            "properties": {"title": "S1 scene", "license": "ESA"},
+            "bbox": [33.0, -14.0, 34.0, -13.0],
+            "assets": {"vv": {"href": "https://x/y.tif"}, "thumbnail": {"href": "https://x/t.png"}},
+        }
+        monkeypatch.setattr(EarthSearchAdapter, "_post_json", lambda self, payload: (True, {"features": [feature]}))
+        adapter = EarthSearchAdapter.__new__(EarthSearchAdapter)
+        adapter._search_url = "https://earth-search.aws.element84.com/v1/search"
+        ok, payload = adapter.search(SearchQuery(bbox=(33.0, -14.0, 34.0, -13.0), limit=5))
+        assert ok is True
+        assert payload["results"][0]["asset_ids"] == ["thumbnail", "vv"]
+
 
 class TestProviderTools:
     def test_search_unknown_provider(self) -> None:

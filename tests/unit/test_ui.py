@@ -503,9 +503,21 @@ class TestEvidenceFeedback:
         # Model-echoed entities resolve once (display shows quotes)...
         assert "&amp;quot;" not in clean_display("a &quot;x&quot;")
         assert "x" in clean_display("a &quot;x&quot;")
+        # ...twice-escaped entities resolve too (no "&amp;" residue)...
+        assert "&amp;" not in clean_display("a &amp;quot;x&amp;quot;")
+        assert "x" in clean_display("a &amp;quot;x&amp;quot;")
         # ...while real markup stays inert.
         assert "<script>" not in clean_display('<script>alert("x")</script>')
         assert "alert" in clean_display('<script>alert("x")</script>')
+
+    def test_narration_failed_with_reason(self) -> None:
+        from lunar_gis.ui.controller import _narrate_executed
+
+        text = _narrate_executed(
+            [{"tool_name": "data.search_catalog", "ok": False, "summary": "failed: PROVIDER_OFFLINE", "output": {}}]
+        )
+        assert "data.search_catalog failed" in text
+        assert "PROVIDER_OFFLINE" in text
 
     def test_narration_structured_no_placeholders(self) -> None:
         from lunar_gis.ui.controller import _narrate_executed

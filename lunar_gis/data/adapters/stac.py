@@ -120,6 +120,8 @@ class EarthSearchAdapter:
                 continue
             summary = self._summarize(feature)
             if summary is not None:
+                assets = feature.get("assets", {}) if isinstance(feature.get("assets"), dict) else {}
+                asset_ids = sorted(str(k) for k in assets.keys())[:5]
                 results.append(
                     {
                         "dataset_id": summary.dataset_id,
@@ -127,6 +129,7 @@ class EarthSearchAdapter:
                         "provider_id": summary.provider_id,
                         "bbox": list(summary.bbox) if summary.bbox else None,
                         "license_spdx": summary.license_spdx,
+                        "asset_ids": asset_ids,
                     }
                 )
         return ok_result({"results": results, "total": len(results)})
