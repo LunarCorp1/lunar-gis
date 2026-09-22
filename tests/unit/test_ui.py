@@ -29,6 +29,7 @@ class TestRegistryWiring:
             "analysis.dissolve",
             "analysis.zonal_statistics",
             "analysis.spatial_join",
+            "analysis.suitability",
             "data.describe_project",
             "data.check_requirement",
             "data.validate_dataset",
@@ -433,6 +434,32 @@ class TestEvidenceFeedback:
         assert _strip_machine_blocks('hello\n```json {"a": 1} ```\nworld') == "hello\nworld"
         assert _strip_machine_blocks("plain text") == "plain text"
         assert _strip_machine_blocks('```json {"a": 1} ```') == ""
+
+
+class TestAffirmation:
+    def test_yes_variants(self) -> None:
+        from lunar_gis.ui.controller import is_affirmation
+
+        for text in (
+            "yes",
+            "Yes",
+            "YES!",
+            "y",
+            "proceed",
+            "confirm",
+            "do it",
+            "go ahead",
+            "ok",
+            "download it",
+            "yes, download it",
+        ):
+            assert is_affirmation(text) is True, text
+
+    def test_non_affirmations(self) -> None:
+        from lunar_gis.ui.controller import is_affirmation
+
+        for text in ("", "maybe", "yesterday", "okra", "do search them", "create a map", "no"):
+            assert is_affirmation(text) is False, text
 
 
 class TestImportBoundary:

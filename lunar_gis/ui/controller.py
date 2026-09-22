@@ -24,6 +24,7 @@ def build_registry() -> ToolRegistry:
     """Register every Lunar GIS tool group (single wiring point)."""
     from lunar_gis.analysis.gis_tools import register_gis_tools
     from lunar_gis.analysis.sensitivity_tools import register_sensitivity_tool
+    from lunar_gis.analysis.suitability_tools import register_suitability_tool
     from lunar_gis.analysis.tools import register_ahp_tool
     from lunar_gis.cartography.cartography_tools import register_cartography_tools
     from lunar_gis.data.data_tools import register_data_tools
@@ -34,6 +35,7 @@ def build_registry() -> ToolRegistry:
     registry = ToolRegistry()
     register_ahp_tool(registry)
     register_sensitivity_tool(registry)
+    register_suitability_tool(registry)
     register_gis_tools(registry)
     register_transformation_tool(registry)
     register_provider_tools(registry)
@@ -353,6 +355,44 @@ def _summarize_output(tool_name: str, outcome: dict[str, Any]) -> str:
     return f"{tool_name}: {text[:800]}"
 
 
+_AFFIRMATIONS = frozenset(
+    {
+        "yes",
+        "y",
+        "yes please",
+        "proceed",
+        "confirm",
+        "confirmed",
+        "do it",
+        "go ahead",
+        "ok",
+        "okay",
+        "download it",
+        "run it",
+        "run them",
+        "yes download",
+        "yes do it",
+    }
+)
+
+
+def is_affirmation(text: str) -> bool:
+    """Conservative yes-detection for confirming pending HIGH-risk proposals.
+
+    Exact match on a small set, or a leading yes/proceed/confirm word.
+    Anything else routes to normal planning (never auto-confirms).
+    """
+    import re
+    import string
+
+    normalized = (text or "").strip().lower()
+    normalized = normalized.translate(str.maketrans("", "", string.punctuation)).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    if normalized in _AFFIRMATIONS:
+        return True
+    return normalized.startswith(("yes ", "proceed ", "confirm "))
+
+
 def make_confirmation(
     tool_name: str, input_data: dict[str, Any], context: ToolExecutionContext, registry: ToolRegistry
 ) -> ConfirmationArtifact | None:
@@ -374,6 +414,7 @@ __all__ = [
     "confirmation_text",
     "ai_status",
     "history_segments",
+    "is_affirmation",
     "plan_request",
     "make_confirmation",
 ]

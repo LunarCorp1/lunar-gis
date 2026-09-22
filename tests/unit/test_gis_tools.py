@@ -91,4 +91,5 @@ class TestProviderLoadsGis:
             "gis_dissolve",
             "gis_zonal_statistics",
             "gis_spatial_join",
+            "gis_suitability",
         } <= names

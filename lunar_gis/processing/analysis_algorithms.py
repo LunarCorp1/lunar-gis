@@ -3,7 +3,8 @@
 Thin wrappers over pinned native algorithms — no GIS math here.
 Each algorithm declares explicit params, runs the native pin, and
 returns memory outputs. The governed ``analysis.*`` tools execute the
-same pins through ``gis_tools`` handlers.
+same pins through ``gis_tools`` handlers. Suitability orchestrates the
+deterministic WLC engine (same pattern as the AHP algorithm).
 
 Pins: native:buffer, native:intersection, native:dissolve,
 native:zonalstatisticsfb, native:joinattributesbylocation
@@ -288,6 +289,76 @@ GIS_ANALYSIS_ALGORITHMS: tuple[type[GisAnalysisBase], ...] = (
     SpatialJoinAlgorithm,
 )
 
+
+class SuitabilityAlgorithm(QgsProcessingAlgorithm):
+    """Weighted-linear-combination suitability scoring.
+
+    Orchestrates lunar_gis.analysis.suitability (deterministic WLC);
+    QGIS iterates features and stores the scored memory output.
+    Criteria JSON: [{"field": str, "weight": number, "direction":
+    "benefit"|"cost"}] with weights summing to 1.
+    """
+
+    INPUT = "INPUT"
+    CRITERIA = "CRITERIA"
+    SCORE_FIELD = "SCORE_FIELD"
+    OUTPUT = "OUTPUT"
+
+    def createInstance(self) -> SuitabilityAlgorithm:
+        return SuitabilityAlgorithm()
+
+    def name(self) -> str:
+        return "gis_suitability"
+
+    def displayName(self) -> str:
+        return "Suitability Scoring (WLC)"
+
+    def group(self) -> str:
+        return "Analysis"
+
+    def groupId(self) -> str:
+        return "analysis"
+
+    def shortHelpString(self) -> str:
+        return "Deterministic weighted-linear-combination suitability scoring with min-max normalization."
+
+    def initAlgorithm(self, config: dict[str, Any] | None = None) -> None:
+        _ = config
+        self.addParameter(QgsProcessingParameterVectorLayer(self.INPUT, "Input layer"))
+        self.addParameter(QgsProcessingParameterString(self.CRITERIA, "Criteria JSON"))
+        self.addParameter(QgsProcessingParameterString(self.SCORE_FIELD, "Score field", defaultValue="suitability"))
+        self.addOutput(QgsProcessingOutputVectorLayer(self.OUTPUT, "Scored"))
+
+    def processAlgorithm(
+        self, parameters: dict[str, Any], context: QgsProcessingContext, feedback: QgsProcessingFeedback
+    ) -> dict[str, Any]:
+        import json as json_module
+
+        from lunar_gis.analysis.suitability_tools import parse_criteria, score_layer
+
+        _ = context
+        layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+        if layer is None:
+            raise QgsProcessingException("Invalid input layer")
+        try:
+            criteria_raw = json_module.loads(self.parameterAsString(parameters, self.CRITERIA, context))
+        except ValueError as exc:
+            raise QgsProcessingException(f"Invalid criteria JSON: {exc}") from exc
+        try:
+            criteria = parse_criteria(criteria_raw)
+        except ValueError as exc:
+            raise QgsProcessingException(str(exc)) from exc
+        feedback.pushInfo(f"Lunar GIS suitability over {layer.featureCount()} features, {len(criteria)} criteria")
+        result = score_layer(
+            layer, criteria, self.parameterAsString(parameters, self.SCORE_FIELD, context) or "suitability"
+        )
+        if not result.get("ok"):
+            raise QgsProcessingException(str(result.get("error", "suitability failed")))
+        return {self.OUTPUT: result["output_ref"]}
+
+
+GIS_ALGORITHMS_WITH_SUITABILITY: tuple[type, ...] = GIS_ANALYSIS_ALGORITHMS + (SuitabilityAlgorithm,)
+
 __all__ = [
     "GIS_PINS",
     "GisAnalysisBase",
@@ -296,5 +367,7 @@ __all__ = [
     "DissolveAlgorithm",
     "ZonalStatisticsAlgorithm",
     "SpatialJoinAlgorithm",
+    "SuitabilityAlgorithm",
     "GIS_ANALYSIS_ALGORITHMS",
+    "GIS_ALGORITHMS_WITH_SUITABILITY",
 ]

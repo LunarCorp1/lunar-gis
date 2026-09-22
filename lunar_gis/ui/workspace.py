@@ -47,6 +47,7 @@ class LunarGISWorkspace(QWidget):
         self.context: ToolExecutionContext = ctrl.default_context()
         self.results_log: list[str] = []
         self.conversation: list[dict[str, str]] = []
+        self.pending_high: list[dict[str, Any]] = []
         self.tabs = QTabWidget(self)
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
@@ -133,6 +134,9 @@ class LunarGISWorkspace(QWidget):
         self.chat_log.append("<b>You:</b> " + html.escape(request))
         self.chat_input.clear()
         self.conversation.append({"role": "user", "text": request})
+        if ctrl.is_affirmation(request) and self.pending_high:
+            self._confirm_pending()
+            return
         plan = ctrl.plan_request(request, self.registry, history=self.conversation)
         if not plan["ok"]:
             # Hard provider/config error: surface it, never mislabel as offline.
@@ -152,8 +156,26 @@ class LunarGISWorkspace(QWidget):
         for call in plan.get("tool_calls", ()):
             name = call.get("tool_name", "?")
             self.chat_log.append(
-                "Proposed action (needs confirmation): <code>" + html.escape(name) + "</code> — run it from its tab."
+                "Proposed action (needs confirmation): <code>"
+                + html.escape(name)
+                + "</code> — say “yes” to confirm here, or run it from its tab."
             )
+        self.pending_high = list(plan.get("tool_calls", ()))
+
+    def _confirm_pending(self) -> None:
+        """Execute pending HIGH-risk proposals via dialog confirmations."""
+        remaining: list[dict[str, Any]] = []
+        for call in self.pending_high:
+            name = call.get("tool_name", "?")
+            result = self._run(name, call.get("arguments", {}))
+            status = "ok" if result.get("ok") else "failed"
+            self.chat_log.append("Confirmed action <code>" + html.escape(name) + ": " + status + "</code>")
+            self._log(f"{name} → {json.dumps(result.get('output', result), default=str)[:2000]}")
+            self.conversation.append({"role": "assistant", "text": f"Confirmed action {name}: {status}."})
+            if (result.get("error") or "") == "confirmation-declined":
+                remaining.append(call)
+                break
+        self.pending_high = remaining
 
     # ------------------------------------------------------------------
     # Project
