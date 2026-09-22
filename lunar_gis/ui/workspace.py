@@ -40,9 +40,13 @@ class LunarGISWorkspace(QWidget):
     def __init__(self, parent: Any = None) -> None:
         super().__init__(parent)
         self.registry: ToolRegistry = ctrl.build_registry()
-        self.executor = ctrl.create_executor(self.registry)
+        # Assistant executor: HIGH-only confirmation per M4 §12 (search,
+        # validation, analysis run with intent audit; downloads and
+        # transformations always open a dialog first).
+        self.executor = ctrl.create_assistant_executor(self.registry)
         self.context: ToolExecutionContext = ctrl.default_context()
         self.results_log: list[str] = []
+        self.conversation: list[dict[str, str]] = []
         self.tabs = QTabWidget(self)
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
@@ -128,7 +132,8 @@ class LunarGISWorkspace(QWidget):
             return
         self.chat_log.append("<b>You:</b> " + html.escape(request))
         self.chat_input.clear()
-        plan = ctrl.plan_request(request, self.registry)
+        self.conversation.append({"role": "user", "text": request})
+        plan = ctrl.plan_request(request, self.registry, history=self.conversation)
         if not plan["ok"]:
             # Hard provider/config error: surface it, never mislabel as offline.
             self.chat_log.append("<b>AI request failed:</b> " + html.escape(str(plan.get("error", "unknown error"))))
@@ -137,16 +142,18 @@ class LunarGISWorkspace(QWidget):
             )
             return
         self.chat_log.append(html.escape(plan["explanation"]))
+        self.conversation.append({"role": "assistant", "text": plan["explanation"]})
         for warning in plan.get("warnings", ()):
             self.chat_log.append("<i>Note: " + html.escape(str(warning)) + "</i>")
+        for entry in plan.get("executed", ()):
+            status = "ok" if entry.get("ok") else "failed"
+            self.chat_log.append("<code>" + html.escape(str(entry.get("tool_name", "?"))) + ": " + status + "</code>")
+            self._log(f"{entry.get('tool_name')} → {entry.get('summary', '')[:2000]}")
         for call in plan.get("tool_calls", ()):
             name = call.get("tool_name", "?")
-            if name in ("data.describe_project", "data.check_requirement"):
-                result = self._run(name, call.get("arguments", {}))
-                self.chat_log.append(f"<code>{name}: {'ok' if result['ok'] else 'failed'}</code>")
-                self._log(f"{name} → {json.dumps(result.get('output', result), default=str)[:2000]}")
-            else:
-                self.chat_log.append(f"Proposed tool (review in its tab): <code>{name}</code>")
+            self.chat_log.append(
+                "Proposed action (needs confirmation): <code>" + html.escape(name) + "</code> — run it from its tab."
+            )
 
     # ------------------------------------------------------------------
     # Project

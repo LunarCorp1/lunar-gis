@@ -52,6 +52,17 @@ Auth/config errors surface in the Assistant as `AI request failed:
 AUTH_FAILED: http-401: <provider message> (check API key)` with
 guidance — never as a misleading "Offline plan (no AI configured)".
 
+## Assistant loop (controller `plan_request`)
+
+AI requests run at most 2 model rounds: model-proposed calls that need
+no confirmation execute through the HIGH-only assistant executor and
+their results feed the next round as `engine-output` segments; HIGH-risk
+proposals return for dialog confirmation, never auto-executed. Prior
+turns travel as labeled history (`trusted-user` / `assistant-history`,
+last 6, budgeted). If the model returns empty text after executing
+tools, the controller narrates what ran from evidence instead of
+showing an empty message.
+
 ## Environment
 
 - `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` are honored. QGIS desktop

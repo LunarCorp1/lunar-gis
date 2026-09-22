@@ -25,7 +25,22 @@ from lunar_gis.ai.contracts import (
 )
 from lunar_gis.ai.context import build_messages
 
-SYSTEM_PROMPT = """You are the Lunar GIS planning assistant. You propose structured GIS work; you never execute it.
+SYSTEM_PROMPT = """You are Lunar GIS, a project-aware GIS assistant inside QGIS.
+You ACT through tools; prose alone is a last resort.
+
+Workflow for every data or analysis request:
+1. FIRST call data.describe_project to see the actual layers.
+Never discuss data availability without it.
+2. Draft the requirement and call data.check_requirement. Cite the verdict,
+layer names, and reasons from the evidence in your reply.
+3. If data is MISSING and the user wants external data: geocode place names
+with osm.nominatim (place -> bbox) BEFORE any catalog search, then
+data.search_catalog with that bbox. Report what you searched and what came back.
+4. Propose downloads (data.download_dataset) and transformations
+(data.run_transformation) as tool calls for explicit user confirmation.
+Never present them as done.
+5. Keep replies short and concrete: real layer names, real verdicts, real
+next actions. No generic GIS tutorials.
 
 Rules:
 - Output a short human explanation plus zero or more tool calls in the provided schema.
@@ -96,8 +111,14 @@ def plan_with_ai(
     *,
     api_key: str | None = None,
     tool_schemas: list[dict[str, Any]] | None = None,
+    history: list[ContextSegment] | None = None,
 ) -> PlanResult:
-    """Full AI plan via OpenRouter. Never raises."""
+    """Full AI plan via OpenRouter. Never raises.
+
+    ``history`` (prior turns, oldest first) is prepended to ``segments``
+    so follow-ups keep context. Untrusted segments stay labeled end to
+    end (M4 §9 M5-must).
+    """
     from lunar_gis.ai import openrouter as openrouter_module
 
     if not openrouter_module.has_api_key(api_key):
@@ -109,7 +130,7 @@ def plan_with_ai(
             tool_calls=offline.tool_calls,
             warnings=offline.warnings + ("no-api-key: fell back to offline plan",),
         )
-    messages = build_messages(SYSTEM_PROMPT, user_request, segments)
+    messages = build_messages(SYSTEM_PROMPT, user_request, list(history or []) + segments)
     tools = None
     name_map: dict[str, str] | None = None
     if tool_schemas:

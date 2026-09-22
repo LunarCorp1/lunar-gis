@@ -89,7 +89,11 @@ SEARCH_CATALOG_TOOL_SPEC = ToolSpec(
     handler=None,
     input_schema=SEARCH_CATALOG_INPUT_SCHEMA,
     output_schema=SEARCH_CATALOG_OUTPUT_SCHEMA,
-    description="Search a controlled provider catalog with a structured query (read-only, capped).",
+    description=(
+        "Search a controlled provider catalog with a structured query (read-only, capped). "
+        "Flow: geocode place names to a bbox with osm.nominatim first; "
+        "Overpass needs bbox+tags; STAC needs bbox/collection."
+    ),
 )
 
 DOWNLOAD_DATASET_TOOL_SPEC = ToolSpec(

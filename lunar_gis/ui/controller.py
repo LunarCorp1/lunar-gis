@@ -47,6 +47,20 @@ def create_executor(registry: ToolRegistry) -> ControlledExecutor:
     return ControlledExecutor(registry)
 
 
+def create_assistant_executor(registry: ToolRegistry) -> ControlledExecutor:
+    """Executor for the Assistant loop: HIGH-only confirmation (M4 §12).
+
+    Only ``data.download_dataset`` and ``data.run_transformation`` are
+    confirmation-gated; search/validation/analysis run with intent audit
+    but no dialog. Library defaults are untouched.
+    """
+    from lunar_gis.agent.governance import ConfirmationPolicy, PolicyEngine
+    from lunar_gis.agent.registry import ToolRisk
+
+    engine = PolicyEngine(confirmation_policy=ConfirmationPolicy(require_confirmation_risks=frozenset({ToolRisk.HIGH})))
+    return ControlledExecutor(registry, engine)
+
+
 def default_context(session_id: str = "ui-session") -> ToolExecutionContext:
     return ToolExecutionContext(session_id=session_id)
 
@@ -121,30 +135,147 @@ def ai_status() -> dict[str, Any]:
     }
 
 
-def plan_request(user_request: str, registry: ToolRegistry) -> dict[str, Any]:
-    """Plan a request (AI when configured, offline heuristic otherwise)."""
+def history_segments(history: list[dict[str, str]] | None) -> list[Any]:
+    """Prior turns → labeled segments (oldest first, last 6, budgeted)."""
+    from lunar_gis.ai.context import MAX_TOTAL_CHARS
+    from lunar_gis.ai.contracts import ContextSegment, TrustLabel
+
+    segments: list[Any] = []
+    total = 0
+    for turn in (history or [])[-6:]:
+        role = turn.get("role", "")
+        text = turn.get("text", "")[:1500]
+        if not text:
+            continue
+        label = TrustLabel.TRUSTED_USER if role == "user" else TrustLabel.ASSISTANT_HISTORY
+        block = f"[{label.value}] prior {'request' if role == 'user' else 'answer'}: {text}"
+        if total + len(block) > MAX_TOTAL_CHARS:
+            break
+        segments.append(ContextSegment(label=label, text=text))
+        total += len(block)
+    return segments
+
+
+def plan_request(
+    user_request: str,
+    registry: ToolRegistry,
+    history: list[dict[str, str]] | None = None,
+    max_rounds: int = 2,
+) -> dict[str, Any]:
+    """Plan a request (AI when configured, offline heuristic otherwise).
+
+    AI path runs a bounded agentic loop: model-proposed calls that need
+    no confirmation execute through the assistant executor and their
+    results feed the next round; HIGH-risk proposals are returned for
+    explicit dialog confirmation, never auto-executed. Offline path is
+    unchanged (single heuristic plan).
+    """
+    from lunar_gis.ai.context import engine_output_segment
     from lunar_gis.ai.contracts import AIConfig
     from lunar_gis.ai.planner import plan_with_ai
-    from lunar_gis.ai.toolcalling import registry_tool_schemas
+    from lunar_gis.ai.toolcalling import registry_tool_schemas, validate_call_against_registry
 
     status = ai_status()
     if not status["configured"]:
         from lunar_gis.ai.planner import plan_offline
 
         result = plan_offline(user_request)
-    else:
-        result = plan_with_ai(user_request, [], AIConfig(), tool_schemas=registry_tool_schemas(registry))
+        return {
+            "ok": result.ok,
+            "explanation": result.explanation,
+            "requirement": result.requirement,
+            "tool_calls": [
+                {"tool_name": c.tool_name, "tool_version": c.tool_version, "arguments": c.arguments}
+                for c in result.tool_calls
+            ],
+            "executed": [],
+            "warnings": list(result.warnings),
+            "error": result.error,
+        }
+    executor = create_assistant_executor(registry)
+    context = default_context()
+    segments = history_segments(history)
+    executed: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    all_pending: list[Any] = []
+    final: Any = None
+    for _ in range(max(1, max_rounds)):
+        result = plan_with_ai(user_request, segments, AIConfig(), tool_schemas=registry_tool_schemas(registry))
+        if not result.ok:
+            return {
+                "ok": False,
+                "explanation": "",
+                "requirement": None,
+                "tool_calls": [],
+                "executed": executed,
+                "warnings": [],
+                "error": result.error,
+            }
+        final = result
+        ran_any = False
+        for call in result.tool_calls:
+            call_dict = {
+                "tool_name": call.tool_name,
+                "tool_version": call.tool_version,
+                "arguments": call.arguments,
+            }
+            valid, _ = validate_call_against_registry(call_dict, registry)
+            fingerprint = call.tool_name + ":" + repr(sorted(call.arguments.items(), key=lambda kv: kv[0]))
+            if not valid or fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            outcome = run_tool(executor, call.tool_name, call.arguments, context)
+            if not outcome["ok"] and "confirmation" in (outcome.get("error") or "").lower():
+                if all(p.tool_name != call.tool_name for p in all_pending):
+                    all_pending.append(call)
+                continue
+            ran_any = True
+            summary = _summarize_output(call.tool_name, outcome)
+            executed.append({"tool_name": call.tool_name, "ok": outcome["ok"], "summary": summary})
+            segments.append(engine_output_segment(call.tool_name, {"ok": outcome["ok"], "summary": summary}))
+        if not ran_any:
+            break
+    if final is None:  # max_rounds < 1 guard (loop always runs at least once)
+        return {
+            "ok": False,
+            "explanation": "",
+            "requirement": None,
+            "tool_calls": [],
+            "executed": executed,
+            "warnings": [],
+            "error": "planner produced no result",
+        }
+    explanation = final.explanation
+    if not explanation.strip() and executed:
+        # The model said nothing: narrate what was actually done from
+        # evidence rather than showing an empty message.
+        done = ", ".join(f"{e['tool_name']} ({'ok' if e['ok'] else 'failed'})" for e in executed)
+        explanation = f"Ran: {done}. See the Results tab for details."
     return {
-        "ok": result.ok,
-        "explanation": result.explanation,
-        "requirement": result.requirement,
+        "ok": final.ok,
+        "explanation": explanation,
+        "requirement": final.requirement,
         "tool_calls": [
-            {"tool_name": c.tool_name, "tool_version": c.tool_version, "arguments": c.arguments}
-            for c in result.tool_calls
+            {"tool_name": c.tool_name, "tool_version": c.tool_version, "arguments": c.arguments} for c in all_pending
         ],
-        "warnings": list(result.warnings),
-        "error": result.error,
+        "executed": executed,
+        "warnings": list(final.warnings),
+        "error": final.error,
     }
+
+
+def _summarize_output(tool_name: str, outcome: dict[str, Any]) -> str:
+    """Privacy-safe one-line summary of an executed call (truncated)."""
+    import json
+
+    if not outcome.get("ok"):
+        return f"failed: {(outcome.get('error') or '')[:200]}"
+    output = (outcome.get("output") or {}).get("data", {})
+    try:
+        text = json.dumps(output, default=str)
+    except (TypeError, ValueError):
+        text = str(output)
+    return f"{tool_name}: {text[:800]}"
 
 
 def make_confirmation(
@@ -162,10 +293,12 @@ __all__ = [
     "UI_CONTROLLER_VERSION",
     "build_registry",
     "create_executor",
+    "create_assistant_executor",
     "default_context",
     "run_tool",
     "confirmation_text",
     "ai_status",
+    "history_segments",
     "plan_request",
     "make_confirmation",
 ]

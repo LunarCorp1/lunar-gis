@@ -87,6 +87,7 @@ class TrustLabel(str, Enum):
 
     TRUSTED_SYSTEM = "trusted-system"  # Lunar GIS prompt scaffolding
     TRUSTED_USER = "trusted-user"  # verbatim user request
+    ASSISTANT_HISTORY = "assistant-history"  # this assistant's own prior words (not verified fact)
     UNTRUSTED_PROJECT = "untrusted-project"  # T2: layer names/metadata
     UNTRUSTED_PROVIDER = "untrusted-provider"  # T3: catalog metadata
     ENGINE_OUTPUT = "engine-output"  # deterministic tool results
