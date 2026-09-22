@@ -111,18 +111,14 @@ def plan_with_ai(
         )
     messages = build_messages(SYSTEM_PROMPT, user_request, segments)
     tools = None
+    name_map: dict[str, str] | None = None
     if tool_schemas:
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": schema["name"],
-                    "description": schema.get("description", ""),
-                    "parameters": schema.get("input_schema", {"type": "object"}),
-                },
-            }
-            for schema in tool_schemas
-        ]
+        from lunar_gis.ai.toolcalling import build_provider_tools
+
+        try:
+            tools, name_map = build_provider_tools(tool_schemas)
+        except ValueError as exc:
+            return PlanResult(ok=False, error=f"INVALID_REQUEST: {exc}")
     ok, payload = openrouter_module.chat_completion(messages, config, api_key=api_key, tools=tools)
     if not ok:
         error_code = str(payload.get("error", "?"))
@@ -142,7 +138,7 @@ def plan_with_ai(
             ok=False,
             error=f"{error_code}: {payload.get('detail', 'provider request failed')}",
         )
-    parsed_ok, parsed = openrouter_module.parse_response(payload, model=config.model)
+    parsed_ok, parsed = openrouter_module.parse_response(payload, model=config.model, name_map=name_map)
     if not parsed_ok:
         return PlanResult(ok=False, error=parsed.get("error", "parse-failed"))
     calls = tuple(

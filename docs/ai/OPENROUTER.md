@@ -21,6 +21,17 @@ the key is present but rejected/unreachable, never that it is missing.
 - Auth: `Authorization: Bearer <key>` header only; the key never appears
   in logs, errors, audit records, provenance, transcripts, or model context.
 
+## Tool names on the wire
+
+Registry tools use dot notation (`data.describe_project`) per the
+ToolSpec contract, but OpenAI-style function names must match
+`^[a-zA-Z0-9_-]+$` (no dots — the provider rejects dotted names with
+HTTP 400). The planner therefore sends provider-safe names (first dot
+→ underscore: `data_describe_project`) and maps returned calls back
+against the live registry before shape validation. Unmapped names are
+rejected as malformed; collisions fail closed at build time. The
+registry itself never changes.
+
 ## Error taxonomy (`AIErrorCode`)
 
 | Code | Meaning | Offline fallback? |
@@ -34,6 +45,7 @@ the key is present but rejected/unreachable, never that it is missing.
 | `RATE_LIMITED` | HTTP 429 | yes |
 | `AUTH_FAILED` | HTTP 401/403 (+ provider message) | **no — hard error** |
 | `ENDPOINT_NOT_FOUND` | HTTP 404 | **no — hard error** |
+| `INVALID_REQUEST` | HTTP 400 (e.g. provider-rejected payload) | **no — hard error** |
 | `INVALID_RESPONSE` | bad JSON / malformed payload | **no — hard error** |
 
 Auth/config errors surface in the Assistant as `AI request failed:

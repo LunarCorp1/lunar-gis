@@ -23,6 +23,12 @@ import pytest
 from lunar_gis.ai import openrouter as openrouter_module
 from lunar_gis.ai.contracts import AIConfig, OFFLINE_FALLBACK_ERRORS
 from lunar_gis.ai.planner import plan_offline, plan_with_ai
+from lunar_gis.ai.toolcalling import (
+    build_provider_tools,
+    from_provider_name,
+    registry_tool_schemas,
+    to_provider_name,
+)
 
 TEST_KEY = "test-key-xyz-123"
 
@@ -254,7 +260,136 @@ class TestFallbackPolicy:
         assert first == second
 
 
-class TestKeyConfinement:
+class TestProviderToolNames:
+    def test_wire_names_match_provider_pattern(self) -> None:
+        import re
+
+        from lunar_gis.ui.controller import build_registry
+
+        pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
+        for schema in registry_tool_schemas(build_registry()):
+            wire = to_provider_name(schema["name"])
+            assert pattern.match(wire), wire
+
+    def test_round_trip_all_registered(self) -> None:
+        from lunar_gis.ui.controller import build_registry
+
+        names = [s["name"] for s in registry_tool_schemas(build_registry())]
+        assert len(names) == 19
+        for name in names:
+            assert from_provider_name(to_provider_name(name), names) == name
+
+    def test_known_tricky_names(self) -> None:
+        assert to_provider_name("data.describe_project") == "data_describe_project"
+        assert to_provider_name("analysis.ahp_sensitivity") == "analysis_ahp_sensitivity"
+        names = ["data.describe_project", "analysis.ahp_sensitivity"]
+        assert from_provider_name("data_describe_project", names) == "data.describe_project"
+        assert from_provider_name("analysis_ahp_sensitivity", names) == "analysis.ahp_sensitivity"
+        assert from_provider_name("nope_missing", names) is None
+
+    def test_rejects_undotted(self) -> None:
+        with pytest.raises(ValueError):
+            to_provider_name("nodots")
+
+    def test_collision_fails_closed(self) -> None:
+        with pytest.raises(ValueError):
+            build_provider_tools(
+                [
+                    {"name": "a.b_c", "description": "", "input_schema": {"type": "object"}},
+                    {"name": "a_b.c", "description": "", "input_schema": {"type": "object"}},
+                ]
+            )
+
+    def test_parse_maps_back(self) -> None:
+        payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "Checking.",
+                        "tool_calls": [{"function": {"name": "data_describe_project", "arguments": "{}"}}],
+                    }
+                }
+            ]
+        }
+        ok, parsed = openrouter_module.parse_response(
+            payload, name_map={"data_describe_project": "data.describe_project"}
+        )
+        assert ok is True
+        assert parsed["tool_calls"][0]["tool_name"] == "data.describe_project"
+
+    def test_parse_rejects_unmapped(self) -> None:
+        payload = {"choices": [{"message": {"tool_calls": [{"function": {"name": "evil_run", "arguments": "{}"}}]}}]}
+        ok, parsed = openrouter_module.parse_response(payload, name_map={})
+        assert ok is False
+        assert parsed["error"] == "MALFORMED_TOOL_CALL"
+
+    def test_planner_sends_wire_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lunar_gis.ui.controller import build_registry
+
+        captured: dict = {}
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            captured["tools"] = tools
+            return True, {"choices": [{"message": {"content": "Done.", "tool_calls": []}}]}
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        result = plan_with_ai(
+            "hello",
+            [],
+            AIConfig(),
+            api_key="k",
+            tool_schemas=registry_tool_schemas(build_registry()),
+        )
+        assert result.ok is True
+        sent = {t["function"]["name"] for t in captured["tools"]}
+        assert "data_describe_project" in sent
+        assert not any("." in name for name in sent)
+
+    def test_planner_maps_calls_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lunar_gis.ui.controller import build_registry
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            _ = (messages, config, api_key, tools)
+            return True, {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "Checking project.",
+                            "tool_calls": [{"function": {"name": "data_describe_project", "arguments": "{}"}}],
+                        }
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        result = plan_with_ai(
+            "hello",
+            [],
+            AIConfig(),
+            api_key="k",
+            tool_schemas=registry_tool_schemas(build_registry()),
+        )
+        assert result.ok is True
+        assert result.tool_calls[0].tool_name == "data.describe_project"
+
+
+class TestBadRequest:
+    def test_400_is_invalid_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install(monkeypatch, _http_error(400, b'{"error":{"message":"bad tools"}}'))
+        ok, payload = openrouter_module.chat_completion(
+            [{"role": "user", "content": "hi"}], AIConfig(), api_key=TEST_KEY
+        )
+        assert ok is False
+        assert payload["error"] == "INVALID_REQUEST"
+        assert "bad tools" in payload["detail"]
+
+    def test_no_fallback_for_400(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install(monkeypatch, _http_error(400, b"{}"))
+        result = plan_with_ai("Hello", [], AIConfig(), api_key=TEST_KEY)
+        assert result.ok is False
+        assert "INVALID_REQUEST" in result.error
+        assert "INVALID_REQUEST" not in OFFLINE_FALLBACK_ERRORS
+
     def test_key_never_in_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install(monkeypatch, _http_error(401, b"{}"))
         ok, payload = openrouter_module.chat_completion(

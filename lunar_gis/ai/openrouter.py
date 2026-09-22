@@ -116,6 +116,8 @@ def _classify_http_error(code: int, body: bytes) -> tuple[str, str]:
         return AIErrorCode.AUTH_FAILED.value, f"http-{code}{suffix} (check API key)"
     if code == 404:
         return AIErrorCode.ENDPOINT_NOT_FOUND.value, f"http-404{suffix} (check model/endpoint)"
+    if code == 400:
+        return AIErrorCode.INVALID_REQUEST.value, f"http-400{suffix} (request rejected by provider)"
     if code == 429:
         return AIErrorCode.RATE_LIMITED.value, f"http-429{suffix}"
     if 500 <= code <= 599:
@@ -218,8 +220,15 @@ def chat_completion(
     return True, payload
 
 
-def parse_response(payload: dict[str, Any], model: str = "") -> tuple[bool, dict[str, Any]]:
-    """Parse a chat-completions payload into explanation + tool calls."""
+def parse_response(
+    payload: dict[str, Any], model: str = "", name_map: dict[str, str] | None = None
+) -> tuple[bool, dict[str, Any]]:
+    """Parse a chat-completions payload into explanation + tool calls.
+
+    ``name_map`` translates provider-safe function names back to
+    registry dotted names BEFORE shape validation. Provider names with
+    no mapping are rejected (never guessed, never passed through).
+    """
     try:
         choices = payload.get("choices", [])
         message = choices[0].get("message", {}) if choices else {}
@@ -230,7 +239,17 @@ def parse_response(payload: dict[str, Any], model: str = "") -> tuple[bool, dict
             if not isinstance(raw, dict):
                 continue
             function = raw.get("function", {}) if isinstance(raw.get("function"), dict) else {}
-            name = function.get("name", "")
+            provider_name = function.get("name", "")
+            if name_map is not None:
+                mapped = name_map.get(provider_name, "")
+                if not mapped:
+                    return False, {
+                        "error": AIErrorCode.MALFORMED_TOOL_CALL.value,
+                        "detail": f"unmapped tool name: {provider_name[:80]}",
+                    }
+                name = mapped
+            else:
+                name = provider_name
             try:
                 args = json.loads(function.get("arguments", "{}") or "{}")
             except ValueError:

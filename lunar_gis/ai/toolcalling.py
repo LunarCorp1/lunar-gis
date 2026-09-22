@@ -102,8 +102,66 @@ def registry_tool_schemas(registry: ToolRegistry) -> list[dict[str, Any]]:
     return schemas
 
 
+def to_provider_name(tool_name: str) -> str:
+    """Registry dotted name → provider-safe function name.
+
+    OpenAI-style function names must match ``^[a-zA-Z0-9_-]+$`` (no
+    dots). The first dot becomes the first underscore; the registry
+    side never changes.
+    """
+    if "." not in tool_name:
+        raise ValueError(f"Tool name must use dot notation, got {tool_name!r}")
+    return tool_name.replace(".", "_", 1)
+
+
+def from_provider_name(provider_name: str, known_names: list[str]) -> str | None:
+    """Provider-safe name → registry dotted name (None if unmapped).
+
+    Reversal splits at the FIRST underscore (domains contain no
+    underscores/dots by ToolSpec construction) and verifies against
+    the known registry names — never guessed.
+    """
+    for name in known_names:
+        try:
+            if to_provider_name(name) == provider_name:
+                return name
+        except ValueError:
+            continue
+    return None
+
+
+def build_provider_tools(schemas: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Build OpenAI-style tools + provider→registry name map.
+
+    Raises ValueError on unmappable names or provider-name collisions
+    (fail-closed: a collision would misroute a tool call).
+    """
+    tools: list[dict[str, Any]] = []
+    mapping: dict[str, str] = {}
+    for schema in schemas:
+        name = schema["name"]
+        provider_name = to_provider_name(name)
+        if provider_name in mapping:
+            raise ValueError(f"Provider tool-name collision: {provider_name!r}")
+        mapping[provider_name] = name
+        tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": provider_name,
+                    "description": schema.get("description", ""),
+                    "parameters": schema.get("input_schema", {"type": "object"}),
+                },
+            }
+        )
+    return tools, mapping
+
+
 __all__ = [
     "validate_call_against_registry",
     "execute_validated_calls",
     "registry_tool_schemas",
+    "to_provider_name",
+    "from_provider_name",
+    "build_provider_tools",
 ]
