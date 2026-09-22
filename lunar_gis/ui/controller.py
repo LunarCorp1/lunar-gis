@@ -160,7 +160,7 @@ def plan_request(
     user_request: str,
     registry: ToolRegistry,
     history: list[dict[str, str]] | None = None,
-    max_rounds: int = 2,
+    max_rounds: int = 3,
 ) -> dict[str, Any]:
     """Plan a request (AI when configured, offline heuristic otherwise).
 
@@ -247,11 +247,13 @@ def plan_request(
             "warnings": [],
             "error": "planner produced no result",
         }
-    explanation = final.explanation
+    explanation = _strip_machine_blocks(final.explanation)
     if not explanation.strip() and executed:
-        # The model said nothing: narrate what was actually found from
-        # evidence rather than showing an empty message.
+        # The model said nothing (or only machine-channel blocks):
+        # narrate what was actually found from evidence.
         explanation = _narrate_executed(executed)
+    if not explanation.strip():
+        explanation = final.explanation
     return {
         "ok": final.ok,
         "explanation": explanation,
@@ -277,6 +279,19 @@ def _summarize_instruction() -> Any:
             "clear next step, make it; otherwise answer with explanation only."
         ),
     )
+
+
+def _strip_machine_blocks(explanation: str) -> str:
+    """Remove machine-channel fenced blocks from model text.
+
+    Executed calls render separately from the ``executed`` record, so
+    inline JSON would only confuse. May return "" (the caller narrates
+    from evidence or falls back to the original).
+    """
+    import re
+
+    stripped = re.sub(r"```json\s*\{.*?\}\s*```", "", explanation or "", flags=re.DOTALL)
+    return "\n".join(line for line in stripped.splitlines() if line.strip()).strip()
 
 
 def _narrate_executed(executed: list[dict[str, Any]]) -> str:

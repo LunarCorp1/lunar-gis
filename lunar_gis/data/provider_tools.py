@@ -132,17 +132,39 @@ def search_catalog_handler(input_data: dict[str, Any]) -> dict[str, Any]:
     try:
         adapter = adapter_registry.get(provider_id)
     except KeyError:
-        return {"ok": False, "provider_id": str(provider_id), "error": "unknown-provider"}
+        return {
+            "ok": False,
+            "provider_id": str(provider_id),
+            "error": f"unknown-provider (registered: {', '.join(adapter_registry.ids())})",
+        }
     try:
         ok, payload = adapter.search(_build_query(input_data))
     except Exception as exc:
         return {"ok": False, "provider_id": provider_id, "error": f"search-failed: {type(exc).__name__}"}
+    if not ok:
+        return {
+            "ok": ok,
+            "provider_id": provider_id,
+            "results": [],
+            "total": 0,
+            "error": payload.get("error", ""),
+        }
+    results = payload.get("results", [])
+    total = payload.get("total", 0)
+    hint = ""
+    if total == 0:
+        hint = (
+            "no results: simplify the place name (e.g. 'Lake Malawi' instead of "
+            "'Lake Malawi Basin'), adjust bbox/tags, or try another provider "
+            "(stac.earth-search / osm.overpass / osm.nominatim)"
+        )
     return {
         "ok": ok,
         "provider_id": provider_id,
-        "results": payload.get("results", []),
-        "total": payload.get("total", 0),
+        "results": results,
+        "total": total,
         "error": payload.get("error", ""),
+        "hint": hint,
     }
 
 
@@ -156,7 +178,11 @@ def download_dataset_handler(input_data: dict[str, Any]) -> dict[str, Any]:
     try:
         adapter = adapter_registry.get(provider_id)
     except KeyError:
-        return {"ok": False, "provider_id": str(provider_id), "error": "unknown-provider"}
+        return {
+            "ok": False,
+            "provider_id": str(provider_id),
+            "error": f"unknown-provider (registered: {', '.join(adapter_registry.ids())})",
+        }
     workspace = input_data.get("workspace_dir")
     try:
         base = workspace if isinstance(workspace, str) and workspace and os.path.isdir(workspace) else None

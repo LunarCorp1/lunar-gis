@@ -234,6 +234,33 @@ class TestAssistantLoop:
         assert plan["explanation"] != ""
         assert "analysis.ahp" in plan["explanation"]
 
+    def test_three_round_chain(self, monkeypatch) -> None:
+        from lunar_gis.ai import openrouter as openrouter_module
+
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        calls = {"n": 0}
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                content, tool = "Step one.", "analysis_ahp"
+            elif calls["n"] == 2:
+                content, tool = "Step two.", "analysis_ahp_sensitivity"
+            else:
+                content, tool = "All done.", None
+            message: dict = {"content": content, "tool_calls": []}
+            if tool is not None:
+                args = '{"criteria": ["a", "b"], "matrix": [[1, 2], [0.5, 1]]}'
+                message["tool_calls"] = [{"function": {"name": tool, "arguments": args}}]
+            return True, {"choices": [{"message": message}]}
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        plan = plan_request("chain it", build_registry(), max_rounds=3)
+        assert plan["ok"] is True
+        assert calls["n"] == 3
+        assert [e["tool_name"] for e in plan["executed"]] == ["analysis.ahp", "analysis.ahp_sensitivity"]
+        assert plan["explanation"] == "All done."
+
     def test_assistant_executor_policy(self) -> None:
         from lunar_gis.ui.controller import create_assistant_executor, run_tool
 
@@ -375,6 +402,37 @@ class TestEvidenceFeedback:
         assert "engine-output" in round_two_text
         assert "weights" in round_two_text or "analysis" in round_two_text
         assert "trusted-system" in round_two_text
+
+    def test_block_only_explanation_narrated(self, monkeypatch) -> None:
+        from lunar_gis.ai import openrouter as openrouter_module
+
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            args = '{"criteria": ["a", "b"], "matrix": [[1, 2], [0.5, 1]]}'
+            return True, {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '```json {"tool": "analysis.ahp", "arguments": ' + args + "} ```",
+                            "tool_calls": [],
+                        }
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        plan = plan_request("weight it", build_registry(), max_rounds=1)
+        assert plan["ok"] is True
+        assert "```" not in plan["explanation"]
+        assert "analysis.ahp" in plan["explanation"]
+
+    def test_strip_machine_blocks(self) -> None:
+        from lunar_gis.ui.controller import _strip_machine_blocks
+
+        assert _strip_machine_blocks('hello\n```json {"a": 1} ```\nworld') == "hello\nworld"
+        assert _strip_machine_blocks("plain text") == "plain text"
+        assert _strip_machine_blocks('```json {"a": 1} ```') == ""
 
 
 class TestImportBoundary:

@@ -42,6 +42,29 @@ Never present them as done.
 5. Keep replies short and concrete: real layer names, real verdicts, real
 next actions. No generic GIS tutorials.
 
+Tool table (exact names — copy verbatim, never shorten or prefix):
+- data.describe_project: list project layers.
+- data.check_requirement: test a requirement ({requirement: {...}}).
+- data.search_catalog: provider catalogs. provider_id MUST be exactly one
+  of: stac.earth-search, osm.overpass, osm.nominatim.
+- data.download_dataset, data.run_transformation: confirmation-gated;
+  propose, never present as done.
+- analysis.ahp, analysis.ahp_sensitivity, analysis.buffer,
+  analysis.intersection, analysis.dissolve, analysis.zonal_statistics,
+  analysis.spatial_join: analysis (arguments per schema).
+- cartography.style_layer, cartography.create_layout, cartography.export_map.
+- reports.generate, reports.export.
+- data.validate_dataset, data.register_local_file.
+6. Never narrate a future action without emitting its tool call in the
+same turn. Writing "I will search" without a tool call is a failure.
+7. If a catalog search returns 0 results, try another provider
+(STAC <-> Overpass) with adjusted parameters before giving up.
+8. Provider ids must be copied VERBATIM: stac.earth-search,
+osm.overpass, osm.nominatim. Short forms like "stac" do not exist.
+9. If you cannot emit a function call, write exactly one fenced block
+```json {"tool": "<dotted.tool.name>", "arguments": {...}} ``` and
+nothing else for that call. Never write pseudo-code invocations.
+
 Rules:
 - Output a short human explanation plus zero or more tool calls in the provided schema.
 - Tool calls must name registered tools exactly (dot notation) with valid arguments.
@@ -166,6 +189,25 @@ def plan_with_ai(
         AIToolCall(tool_name=c["tool_name"], tool_version=c["tool_version"], arguments=c["arguments"])
         for c in parsed.get("tool_calls", [])
     )
+    # Fallback channel: strictly-shaped fenced calls the model printed as
+    # text instead of emitting. Same validation downstream.
+    if tool_schemas:
+        from lunar_gis.ai.toolcalling import extract_text_calls
+
+        known = [s["name"] for s in tool_schemas if isinstance(s, dict) and isinstance(s.get("name"), str)]
+        seen_calls = {(c.tool_name, repr(sorted(c.arguments.items()))) for c in calls}
+        extra: list[AIToolCall] = []
+        for text_call in extract_text_calls(str(parsed.get("explanation", "")), known):
+            candidate = AIToolCall(
+                tool_name=text_call["tool_name"],
+                tool_version=text_call["tool_version"],
+                arguments=text_call["arguments"],
+            )
+            fingerprint = (candidate.tool_name, repr(sorted(candidate.arguments.items())))
+            if fingerprint not in seen_calls:
+                seen_calls.add(fingerprint)
+                extra.append(candidate)
+        calls = calls + tuple(extra)
     requirement = heuristic_requirement(user_request)
     return PlanResult(
         ok=True,

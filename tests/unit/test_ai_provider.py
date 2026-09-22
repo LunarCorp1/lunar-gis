@@ -373,6 +373,102 @@ class TestProviderToolNames:
         assert result.tool_calls[0].tool_name == "data.describe_project"
 
 
+class TestTextCallExtraction:
+    NAMES = ["data.search_catalog", "data.describe_project"]
+
+    def test_strict_fenced_shape(self) -> None:
+        from lunar_gis.ai.toolcalling import extract_text_calls
+
+        text = 'Searching now:\n```json {"tool": "data.search_catalog", "arguments": {"provider_id": "x"}} ```'
+        calls = extract_text_calls(text, self.NAMES)
+        assert len(calls) == 1
+        assert calls[0]["tool_name"] == "data.search_catalog"
+        assert calls[0]["arguments"] == {"provider_id": "x"}
+
+    def test_wire_name_mapped(self) -> None:
+        from lunar_gis.ai.toolcalling import extract_text_calls
+
+        text = '```json {"tool_name": "data_search_catalog", "arguments": {}} ```'
+        calls = extract_text_calls(text, self.NAMES)
+        assert calls[0]["tool_name"] == "data.search_catalog"
+
+    def test_functions_prefix_stripped(self) -> None:
+        from lunar_gis.ai.toolcalling import extract_text_calls
+
+        text = '```json {"tool": "functions.data_search_catalog", "arguments": {}} ```'
+        calls = extract_text_calls(text, self.NAMES)
+        assert calls[0]["tool_name"] == "data.search_catalog"
+
+    def test_unmapped_dropped(self) -> None:
+        from lunar_gis.ai.toolcalling import extract_text_calls
+
+        text = '```json {"tool": "evil.run", "arguments": {}} ```'
+        assert extract_text_calls(text, self.NAMES) == []
+
+    def test_pseudo_code_ignored(self) -> None:
+        from lunar_gis.ai.toolcalling import extract_text_calls
+
+        text = '```json\ndata.search_catalog({\n  provider_id: "stac",\n})\n```'
+        assert extract_text_calls(text, self.NAMES) == []
+        assert extract_text_calls("no fences here", self.NAMES) == []
+
+    def test_planner_merges_text_calls(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lunar_gis.ui.controller import build_registry
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            _ = (messages, config, api_key, tools)
+            return True, {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                'Running:\n```json {"tool": "analysis.ahp", "arguments": '
+                                '{"criteria": ["a", "b"], "matrix": [[1, 2], [0.5, 1]]}} ```'
+                            ),
+                            "tool_calls": [],
+                        }
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        result = plan_with_ai(
+            "weight it",
+            [],
+            AIConfig(),
+            api_key="k",
+            tool_schemas=registry_tool_schemas(build_registry()),
+        )
+        assert result.ok is True
+        assert result.tool_calls[0].tool_name == "analysis.ahp"
+
+    def test_loop_executes_text_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lunar_gis.ui.controller import build_registry, plan_request
+
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            _ = (messages, config, api_key, tools)
+            return True, {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '```json {"tool": "analysis.ahp", "arguments": '
+                                '{"criteria": ["a", "b"], "matrix": [[1, 2], [0.5, 1]]}} ```'
+                            ),
+                            "tool_calls": [],
+                        }
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        plan = plan_request("weight it", build_registry(), max_rounds=1)
+        assert plan["ok"] is True
+        assert [e["tool_name"] for e in plan["executed"]] == ["analysis.ahp"]
+
+
 class TestBadRequest:
     def test_400_is_invalid_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install(monkeypatch, _http_error(400, b'{"error":{"message":"bad tools"}}'))

@@ -32,6 +32,16 @@ against the live registry before shape validation. Unmapped names are
 rejected as malformed; collisions fail closed at build time. The
 registry itself never changes.
 
+Fallback channel: if the model prints a strictly-shaped fenced block
+```json {"tool": "<name>", "arguments": {...}} ``` instead of emitting
+a function call, the planner extracts it (wire/`functions.` prefixes
+normalized, registry-verified) and validates it identically. Anything
+else (pseudo-code, unquoted keys) is ignored, never guessed.
+
+Empty searches return a deterministic hint (simplify the place name,
+adjust parameters, try another provider) so the next round can
+self-correct instead of repeating the failing query.
+
 ## Error taxonomy (`AIErrorCode`)
 
 | Code | Meaning | Offline fallback? |

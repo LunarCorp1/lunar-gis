@@ -250,7 +250,8 @@ class TestProviderTools:
     def test_search_unknown_provider(self) -> None:
         result = search_catalog_handler({"provider_id": "nope.missing"})
         assert result["ok"] is False
-        assert result["error"] == "unknown-provider"
+        assert "unknown-provider" in result["error"]
+        assert "stac.earth-search" in result["error"]
 
     def test_download_unknown_provider(self) -> None:
         result = download_dataset_handler({"provider_id": "nope.missing", "dataset_id": "d", "asset_id": "a"})
@@ -270,6 +271,20 @@ class TestProviderTools:
         # overpass with no bbox → INVALID_QUERY without touching network
         result = search_catalog_handler({"provider_id": "osm.overpass", "tags": {"amenity": "hospital"}})
         assert result["ok"] is False
+
+    def test_empty_search_carries_hint(self, monkeypatch) -> None:
+        from lunar_gis.data.adapters import registry as adapter_registry
+
+        class FakeAdapter:
+            def search(self, query, page_token=None):
+                _ = (query, page_token)
+                return True, {"results": [], "total": 0}
+
+        monkeypatch.setattr(adapter_registry, "get", lambda pid: FakeAdapter())
+        result = search_catalog_handler({"provider_id": "osm.nominatim", "place": "Nowhere Xyz"})
+        assert result["ok"] is True
+        assert result["total"] == 0
+        assert "hint" in result and "simplify" in result["hint"]
 
 
 class TestImportBoundary:

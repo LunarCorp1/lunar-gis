@@ -130,6 +130,47 @@ def from_provider_name(provider_name: str, known_names: list[str]) -> str | None
     return None
 
 
+def extract_text_calls(text: str, known_names: list[str]) -> list[dict[str, Any]]:
+    """Extract strictly-shaped fenced tool calls from model prose.
+
+    Accepted shape only (no lenient parsing, no guessing)::
+
+        ```json {"tool": "<dotted.or_wire.name>", "arguments": {...}} ```
+
+    or with ``"tool_name"`` instead of ``"tool"``. Names map through the
+    provider→registry table; unmapped names are dropped. Everything else
+    (pseudo-code, unquoted keys, prose) is ignored. Returned calls still
+    require ``validate_call_against_registry`` before execution.
+    """
+    import json as json_module
+    import re
+
+    calls: list[dict[str, Any]] = []
+    for match in re.finditer(r"```json\s*(\{.*?\})\s*```", text or "", re.DOTALL):
+        try:
+            payload = json_module.loads(match.group(1))
+        except ValueError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        raw_name = payload.get("tool", payload.get("tool_name", ""))
+        arguments = payload.get("arguments", {})
+        if not isinstance(raw_name, str) or not isinstance(arguments, dict):
+            continue
+        name = raw_name
+        if name.startswith("functions."):
+            name = name[len("functions.") :]
+        if "." not in name:
+            mapped = from_provider_name(name, known_names)
+            if mapped is None:
+                continue
+            name = mapped
+        if name not in known_names:
+            continue
+        calls.append({"tool_name": name, "tool_version": "1.0.0", "arguments": arguments})
+    return calls
+
+
 def build_provider_tools(schemas: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Build OpenAI-style tools + provider→registry name map.
 
@@ -163,5 +204,6 @@ __all__ = [
     "registry_tool_schemas",
     "to_provider_name",
     "from_provider_name",
+    "extract_text_calls",
     "build_provider_tools",
 ]
