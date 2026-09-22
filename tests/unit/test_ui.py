@@ -275,6 +275,108 @@ class TestHistory:
         assert history_segments([]) == []
 
 
+class TestEvidenceFeedback:
+    def test_segment_carries_summary(self) -> None:
+        from lunar_gis.ai.context import engine_output_segment
+
+        segment = engine_output_segment("data.describe_project", {"ok": True, "summary": "layers: roads"})
+        assert "layers: roads" in segment.text
+        assert segment.label.value == "engine-output"
+
+    def test_narration_empty_project(self) -> None:
+        from lunar_gis.ui.controller import _narrate_executed
+
+        text = _narrate_executed(
+            [
+                {
+                    "tool_name": "data.describe_project",
+                    "ok": True,
+                    "summary": 'data.describe_project: {"ok": true, "records": []}',
+                }
+            ]
+        )
+        assert "no layers" in text
+
+    def test_narration_with_layers(self) -> None:
+        import json
+
+        from lunar_gis.ui.controller import _narrate_executed
+
+        payload = {"ok": True, "records": [{"name": "roads", "geometry_type": "1", "feature_count": 5}]}
+        text = _narrate_executed(
+            [
+                {
+                    "tool_name": "data.describe_project",
+                    "ok": True,
+                    "summary": "data.describe_project: " + json.dumps(payload),
+                }
+            ]
+        )
+        assert "roads" in text
+        assert "1 layers" in text or "(1)" in text
+
+    def test_narration_check_and_search(self) -> None:
+        import json
+
+        from lunar_gis.ui.controller import _narrate_executed
+
+        check = {"ok": True, "availability": "missing", "fulfillment_kind": "missing", "missing_reason": "no-layer"}
+        search = {"ok": True, "total": 1, "results": [{"title": "Hospitals"}]}
+        text = _narrate_executed(
+            [
+                {
+                    "tool_name": "data.check_requirement",
+                    "ok": True,
+                    "summary": "data.check_requirement: " + json.dumps(check),
+                },
+                {
+                    "tool_name": "data.search_catalog",
+                    "ok": True,
+                    "summary": "data.search_catalog: " + json.dumps(search),
+                },
+            ]
+        )
+        assert "missing" in text
+        assert "Hospitals" in text
+
+    def test_round_two_gets_nudge(self, monkeypatch) -> None:
+        from lunar_gis.ai import openrouter as openrouter_module
+
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        seen_messages: list = []
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            seen_messages.append(messages)
+            if len(seen_messages) == 1:
+                return True, {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "Computing.",
+                                "tool_calls": [
+                                    {
+                                        "function": {
+                                            "name": "analysis_ahp",
+                                            "arguments": '{"criteria": ["a", "b"], "matrix": [[1, 2], [0.5, 1]]}',
+                                        }
+                                    }
+                                ],
+                            }
+                        }
+                    ],
+                }
+            return True, {"choices": [{"message": {"content": "Done.", "tool_calls": []}}]}
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        plan = plan_request("weight it", build_registry(), max_rounds=2)
+        assert plan["ok"] is True
+        assert len(seen_messages) == 2
+        round_two_text = seen_messages[1][1]["content"]
+        assert "engine-output" in round_two_text
+        assert "weights" in round_two_text or "analysis" in round_two_text
+        assert "trusted-system" in round_two_text
+
+
 class TestImportBoundary:
     def test_controller_qgis_free(self) -> None:
         import pathlib

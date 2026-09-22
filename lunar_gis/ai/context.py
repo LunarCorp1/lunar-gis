@@ -76,11 +76,15 @@ def project_summary_segment(inventory_payload: dict[str, Any]) -> ContextSegment
 
 
 def engine_output_segment(title: str, payload: dict[str, Any]) -> ContextSegment:
-    """Wrap a deterministic tool result (key facts only, capped)."""
+    """Wrap a deterministic tool result (key facts + summary, capped)."""
     lines = [f"ENGINE RESULT: {title}"]
     for key in ("availability", "fulfillment_kind", "missing_reason", "verdict", "satisfaction", "ok", "error"):
         if key in payload:
             lines.append(f"{key}={payload[key]}")
+    summary = payload.get("summary")
+    if isinstance(summary, str) and summary:
+        lines.append("summary:")
+        lines.append(summary[:1500])
     evidence = payload.get("evidence")
     if isinstance(evidence, list):
         lines.append("evidence:")

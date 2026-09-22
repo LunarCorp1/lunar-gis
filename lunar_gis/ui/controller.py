@@ -199,7 +199,9 @@ def plan_request(
     seen: set[str] = set()
     all_pending: list[Any] = []
     final: Any = None
-    for _ in range(max(1, max_rounds)):
+    for round_index in range(max(1, max_rounds)):
+        if round_index > 0:
+            segments.append(_summarize_instruction())
         result = plan_with_ai(user_request, segments, AIConfig(), tool_schemas=registry_tool_schemas(registry))
         if not result.ok:
             return {
@@ -247,10 +249,9 @@ def plan_request(
         }
     explanation = final.explanation
     if not explanation.strip() and executed:
-        # The model said nothing: narrate what was actually done from
+        # The model said nothing: narrate what was actually found from
         # evidence rather than showing an empty message.
-        done = ", ".join(f"{e['tool_name']} ({'ok' if e['ok'] else 'failed'})" for e in executed)
-        explanation = f"Ran: {done}. See the Results tab for details."
+        explanation = _narrate_executed(executed)
     return {
         "ok": final.ok,
         "explanation": explanation,
@@ -262,6 +263,65 @@ def plan_request(
         "warnings": list(final.warnings),
         "error": final.error,
     }
+
+
+def _summarize_instruction() -> Any:
+    """Trusted follow-up nudge: answer from evidence, act when obvious."""
+    from lunar_gis.ai.contracts import ContextSegment, TrustLabel
+
+    return ContextSegment(
+        label=TrustLabel.TRUSTED_SYSTEM,
+        text=(
+            "Summarize the engine results above in 2-4 concrete sentences "
+            "(real layers, verdicts, counts). If one more tool call is the "
+            "clear next step, make it; otherwise answer with explanation only."
+        ),
+    )
+
+
+def _narrate_executed(executed: list[dict[str, Any]]) -> str:
+    """Deterministic evidence-grounded narration (no model needed)."""
+    import json
+
+    parts: list[str] = []
+    for entry in executed:
+        name = entry.get("tool_name", "?")
+        if not entry.get("ok"):
+            parts.append(f"{name} failed.")
+            continue
+        summary = entry.get("summary", "")
+        try:
+            payload = json.loads(summary.split(":", 1)[1]) if ":" in summary else {}
+        except (ValueError, IndexError):
+            payload = {}
+        if name == "data.describe_project" and isinstance(payload, dict):
+            records = payload.get("records", [])
+            if not records:
+                parts.append("The project currently has no layers loaded.")
+            else:
+                shown = ", ".join(
+                    f"{r.get('name')} [{r.get('geometry_type')}, {r.get('feature_count')} features]"
+                    for r in records[:10]
+                    if isinstance(r, dict)
+                )
+                extra = f" (+{len(records) - 10} more)" if len(records) > 10 else ""
+                parts.append(f"Project layers ({len(records)}): {shown}{extra}.")
+        elif name == "data.check_requirement" and isinstance(payload, dict):
+            parts.append(
+                f"Requirement check: {payload.get('availability', '?')} "
+                f"({payload.get('fulfillment_kind', '?')}"
+                f"{', ' + str(payload.get('missing_reason')) if payload.get('missing_reason') else ''})."
+            )
+        elif name == "data.search_catalog" and isinstance(payload, dict):
+            results = payload.get("results", [])
+            titles = "; ".join(str(r.get("title", "?"))[:80] for r in results[:5] if isinstance(r, dict))
+            parts.append(f"Catalog search: {payload.get('total', len(results))} result(s). {titles}".rstrip(". ") + ".")
+        elif name == "data.validate_dataset" and isinstance(payload, dict):
+            parts.append(f"Validation verdict: {payload.get('verdict', '?')}.")
+        else:
+            parts.append(f"{name} completed.")
+    parts.append("See the Results tab for details.")
+    return " ".join(parts)
 
 
 def _summarize_output(tool_name: str, outcome: dict[str, Any]) -> str:
