@@ -293,8 +293,8 @@ class TestOverpassRefetch:
     def test_download_refetch_mocked(self, monkeypatch, tmp_path) -> None:
         import json as json_module
 
+        from lunar_gis.data.adapters import osm as osm_module
         from lunar_gis.data.adapters.osm import OverpassAdapter, encode_overpass_dataset_id
-        from lunar_gis.data.adapters import transport as transport_module
 
         body = json_module.dumps({"elements": [{"type": "node", "id": 1, "lat": -14.0, "lon": 34.0}]}).encode()
 
@@ -305,7 +305,11 @@ class TestOverpassRefetch:
             ok = True
             error = ""
 
-        monkeypatch.setattr(transport_module, "fetch_url", lambda url, allow, **kw: FakeFetch(body))
+        # Patch where the name is looked up (osm.fetch_url), not where it
+        # is defined: `from ... import fetch_url` binds osm's own
+        # reference, so patching transport.fetch_url is a no-op that
+        # lets real HTTP through (CI flake / 30s stall on failure).
+        monkeypatch.setattr(osm_module, "fetch_url", lambda url, allow, **kw: FakeFetch(body))
         adapter = OverpassAdapter()
         dataset_id = encode_overpass_dataset_id((("natural", "water"),), (34.0, -14.3, 34.3, -14.0))
         ok, payload = adapter.download(dataset_id, "overpass.geojson", str(tmp_path))
@@ -334,7 +338,12 @@ class TestRegistry:
         with pytest.raises(KeyError):
             adapter_registry.get("nope.missing")
 
-    def test_stac_allowlist(self) -> None:
+    def test_stac_allowlist(self, monkeypatch) -> None:
+        from lunar_gis.data.adapters import transport as transport_module
+
+        # Hermetic: the constructor validates egress (incl. real DNS);
+        # stub resolution so unit CI never depends on DNS.
+        monkeypatch.setattr(transport_module, "resolve_and_check", lambda host: (True, "ok"))
         adapter = adapter_registry.get("stac.earth-search")
         assert "earth-search.aws.element84.com" in adapter.host_allowlist()
 
