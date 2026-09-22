@@ -229,6 +229,99 @@ class TestOverpassQL:
         assert "amenity" in ALLOWLISTED_TAG_KEYS and "healthcare" in ALLOWLISTED_TAG_KEYS
 
 
+class TestOverpassRefetch:
+    def test_encode_decode_round_trip(self) -> None:
+        from lunar_gis.data.adapters.osm import decode_overpass_dataset_id, encode_overpass_dataset_id
+
+        tags = (("natural", "water"), ("waterway", "river"))
+        bbox = (34.0, -14.3, 34.3, -14.0)
+        assert decode_overpass_dataset_id(encode_overpass_dataset_id(tags, bbox)) == (tags, bbox)
+
+    def test_tampered_rejected(self) -> None:
+        from lunar_gis.data.adapters.osm import decode_overpass_dataset_id
+
+        assert decode_overpass_dataset_id("osm:tags=secret=x&bbox=0,0,1,1") is None
+        assert decode_overpass_dataset_id("osm:tags=amenity=hospital&bbox=1,1,0,0") is None
+        assert decode_overpass_dataset_id("osm:tags=amenity=hospital&bbox=0,0,10,10") is not None
+        assert decode_overpass_dataset_id("nonsense") is None
+        assert decode_overpass_dataset_id("osm:tags=&bbox=0,0,1,1") is None
+
+    def test_conversion_fixture(self) -> None:
+        from lunar_gis.data.adapters.osm import overpass_json_to_geojson
+
+        payload = {
+            "elements": [
+                {"type": "node", "id": 1, "lat": -14.0, "lon": 34.0, "tags": {"natural": "water"}},
+                {"type": "node", "id": 2, "lat": -14.1, "lon": 34.1},
+                {"type": "way", "id": 10, "nodes": [1, 2], "tags": {"waterway": "river"}},
+                {"type": "way", "id": 11, "nodes": [999], "tags": {}},
+                {"type": "relation", "id": 20, "tags": {}},
+            ]
+        }
+        geojson, counts = overpass_json_to_geojson(payload)
+        assert geojson["type"] == "FeatureCollection"
+        kinds = sorted(f["geometry"]["type"] for f in geojson["features"])
+        assert kinds == ["LineString", "Point", "Point"]
+        assert counts == {"features": 3, "skipped_relations": 1}
+        first_props = geojson["features"][0]["properties"]
+        assert first_props["osm_type"] == "node" and first_props["osm_id"] == 1
+        assert all("id" not in f for f in geojson["features"])
+
+    def test_conversion_inline_geometry(self) -> None:
+        from lunar_gis.data.adapters.osm import overpass_json_to_geojson
+
+        payload = {
+            "elements": [
+                {
+                    "type": "way",
+                    "id": 7,
+                    "tags": {"waterway": "river"},
+                    "geometry": [{"lat": -14.0, "lon": 34.0}, {"lat": -14.1, "lon": 34.1}],
+                },
+                {"type": "way", "id": 8, "tags": {}, "geometry": [{"lat": -14.0, "lon": 34.0}]},
+            ]
+        }
+        geojson, counts = overpass_json_to_geojson(payload)
+        assert counts["features"] == 1
+        assert geojson["features"][0]["geometry"]["coordinates"] == [[34.0, -14.0], [34.1, -14.1]]
+
+    def test_ql_uses_out_geom(self) -> None:
+        ok, ql = build_overpass_ql((0.0, 0.0, 0.5, 0.5), (("amenity", "hospital"),))
+        assert ok is True
+        assert "out geom" in ql
+
+    def test_download_refetch_mocked(self, monkeypatch, tmp_path) -> None:
+        import json as json_module
+
+        from lunar_gis.data.adapters.osm import OverpassAdapter, encode_overpass_dataset_id
+        from lunar_gis.data.adapters import transport as transport_module
+
+        body = json_module.dumps({"elements": [{"type": "node", "id": 1, "lat": -14.0, "lon": 34.0}]}).encode()
+
+        class FakeFetch:
+            def __init__(self, body: bytes):
+                self.body = body
+
+            ok = True
+            error = ""
+
+        monkeypatch.setattr(transport_module, "fetch_url", lambda url, allow, **kw: FakeFetch(body))
+        adapter = OverpassAdapter()
+        dataset_id = encode_overpass_dataset_id((("natural", "water"),), (34.0, -14.3, 34.3, -14.0))
+        ok, payload = adapter.download(dataset_id, "overpass.geojson", str(tmp_path))
+        assert ok is True
+        assert payload["sandbox_relpath"] == "overpass.geojson"
+        assert (tmp_path / "overpass.geojson").exists()
+
+    def test_download_bad_id_or_asset(self, tmp_path) -> None:
+        from lunar_gis.data.adapters.osm import OverpassAdapter
+
+        adapter = OverpassAdapter()
+        assert adapter.download("nonsense", "overpass.geojson", str(tmp_path))[0] is False
+        good = "osm:tags=natural=water&bbox=34.0,-14.3,34.3,-14.0"
+        assert adapter.download(good, "wrong asset", str(tmp_path))[0] is False
+
+
 class TestRegistry:
     def test_ids(self) -> None:
         assert {"stac.earth-search", "osm.overpass", "osm.nominatim"} <= set(adapter_registry.ids())
