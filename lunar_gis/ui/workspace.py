@@ -177,7 +177,8 @@ class LunarGISWorkspace(QWidget):
         for call in self.pending_high:
             name = call.get("tool_name", "?")
             result = self._run(name, call.get("arguments", {}))
-            status = "ok" if result.get("ok") else "failed"
+            ok = bool(result.get("ok") and result.get("handler_ok", True))
+            status = "ok" if ok else "failed"
             detail = self._confirm_detail(name, result)
             self.chat_log.append(
                 "Confirmed action <code>" + html.escape(name) + ": " + status + "</code> — " + html.escape(detail)
@@ -198,6 +199,8 @@ class LunarGISWorkspace(QWidget):
         data = (result.get("output") or {}).get("data", {})
         if not result.get("ok"):
             return str(result.get("error", "failed"))
+        if not result.get("handler_ok", True):
+            return str(result.get("handler_error", "handler reported failure"))
         if tool_name == "data.download_dataset":
             return (
                 f"{data.get('size_bytes', '?')} bytes, sha {str(data.get('sha256', ''))[:12]}, "

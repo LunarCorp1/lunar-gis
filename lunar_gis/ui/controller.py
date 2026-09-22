@@ -74,14 +74,32 @@ def run_tool(
     context: ToolExecutionContext,
     confirmation: ConfirmationArtifact | None = None,
 ) -> dict[str, Any]:
-    """Execute one tool through governance. Never raises."""
+    """Execute one tool through governance. Never raises.
+
+    Two success levels (never conflated): ``ok`` = the governed
+    execution succeeded (policy → confirmation → handler ran → output
+    validated); ``handler_ok`` = the handler's own domain verdict
+    (``output["ok"]`` when present, True when the handler returns no
+    verdict field, False when the handler reports failure). A tool can
+    execute perfectly and still report a domain failure (e.g. provider
+    offline) — callers MUST branch on ``handler_ok`` for domain logic.
+    """
     try:
         result = executor.execute(tool_name, input_data, context, confirmation)
     except Exception as exc:
         return {"ok": False, "tool_name": tool_name, "error": f"execution-failed: {type(exc).__name__}"}
+    output_data = result.output.to_dict().get("data", {}) if result.output is not None else {}
+    handler_ok = True
+    handler_error = ""
+    if isinstance(output_data, dict) and "ok" in output_data:
+        handler_ok = bool(output_data["ok"])
+        if not handler_ok:
+            handler_error = str(output_data.get("error", "handler reported failure"))
     return {
         "ok": result.success,
         "tool_name": tool_name,
+        "handler_ok": handler_ok and result.success,
+        "handler_error": handler_error,
         "output": result.output.to_dict() if result.output is not None else None,
         "error": result.error,
     }
@@ -236,10 +254,11 @@ def plan_request(
             ran_any = True
             summary = _summarize_output(call.tool_name, outcome)
             output_data = (outcome.get("output") or {}).get("data", {}) if outcome.get("ok") else {}
-            executed.append(
-                {"tool_name": call.tool_name, "ok": outcome["ok"], "summary": summary, "output": output_data}
-            )
-            segments.append(engine_output_segment(call.tool_name, {"ok": outcome["ok"], "summary": summary}))
+            # Domain verdict (handler_ok), never just execution success: a
+            # perfectly executed call can still report domain failure.
+            entry_ok = bool(outcome["ok"] and outcome.get("handler_ok", True))
+            executed.append({"tool_name": call.tool_name, "ok": entry_ok, "summary": summary, "output": output_data})
+            segments.append(engine_output_segment(call.tool_name, {"ok": entry_ok, "summary": summary}))
         if not ran_any:
             break
     if final is None:  # max_rounds < 1 guard (loop always runs at least once)
@@ -367,11 +386,17 @@ def _narrate_executed(executed: list[dict[str, Any]]) -> str:
 
 
 def _summarize_output(tool_name: str, outcome: dict[str, Any]) -> str:
-    """Privacy-safe one-line summary of an executed call (truncated)."""
+    """Privacy-safe one-line summary of an executed call (truncated).
+
+    Reports domain failure (handler error) distinctly from execution
+    failure so the model and narration never mistake one for success.
+    """
     import json
 
     if not outcome.get("ok"):
         return f"failed: {(outcome.get('error') or '')[:200]}"
+    if not outcome.get("handler_ok", True):
+        return f"failed: {(outcome.get('handler_error') or 'handler reported failure')[:200]}"
     output = (outcome.get("output") or {}).get("data", {})
     try:
         text = json.dumps(output, default=str)

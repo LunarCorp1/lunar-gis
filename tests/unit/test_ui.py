@@ -57,10 +57,40 @@ class TestRegistryWiring:
         )
         assert result["ok"] is True
 
+    def test_run_tool_high_risk_requires_confirmation(self) -> None:
+        from lunar_gis.ui.controller import run_tool
+
+        registry = build_registry()
+        result = run_tool(
+            create_executor(registry),
+            "data.download_dataset",
+            {"provider_id": "p", "dataset_id": "d", "asset_id": "a"},
+            default_context(),
+        )
+        assert result["ok"] is False
+
     def test_run_tool_unknown(self) -> None:
         registry = build_registry()
         result = run_tool(create_executor(registry), "nope.missing", {}, default_context())
         assert result["ok"] is False
+
+    def test_run_tool_two_levels(self) -> None:
+        from lunar_gis.agent.registry import ToolRegistry, ToolRisk, ToolSpec, ToolVersion
+        from lunar_gis.ui.controller import run_tool
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                name="test.domain_tool",
+                version=ToolVersion(1, 0, 0),
+                risk=ToolRisk.LOW,
+                handler=lambda data: {"ok": False, "error": "domain bad"},
+            )
+        )
+        result = run_tool(create_executor(registry), "test.domain_tool", {}, default_context())
+        assert result["ok"] is True
+        assert result["handler_ok"] is False
+        assert result["handler_error"] == "domain bad"
 
 
 class TestConfirmation:
@@ -262,6 +292,37 @@ class TestAssistantLoop:
         assert calls["n"] == 3
         assert [e["tool_name"] for e in plan["executed"]] == ["analysis.ahp", "analysis.ahp_sensitivity"]
         assert plan["explanation"] == "All done."
+
+    def test_loop_marks_handler_failure(self, monkeypatch) -> None:
+        from lunar_gis.ai import openrouter as openrouter_module
+
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+        def fake_chat(messages, config, api_key=None, tools=None):
+            return True, {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "Searching.",
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "data_search_catalog",
+                                        "arguments": '{"provider_id": "osm.overpass"}',
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(openrouter_module, "chat_completion", fake_chat)
+        plan = plan_request("search hospitals", build_registry(), max_rounds=1)
+        assert plan["ok"] is True
+        assert len(plan["executed"]) == 1
+        assert plan["executed"][0]["ok"] is False
+        assert "failed" in plan["executed"][0]["summary"]
 
     def test_assistant_executor_policy(self) -> None:
         from lunar_gis.ui.controller import create_assistant_executor, run_tool
