@@ -235,7 +235,10 @@ def plan_request(
                 continue
             ran_any = True
             summary = _summarize_output(call.tool_name, outcome)
-            executed.append({"tool_name": call.tool_name, "ok": outcome["ok"], "summary": summary})
+            output_data = (outcome.get("output") or {}).get("data", {}) if outcome.get("ok") else {}
+            executed.append(
+                {"tool_name": call.tool_name, "ok": outcome["ok"], "summary": summary, "output": output_data}
+            )
             segments.append(engine_output_segment(call.tool_name, {"ok": outcome["ok"], "summary": summary}))
         if not ran_any:
             break
@@ -296,6 +299,18 @@ def _strip_machine_blocks(explanation: str) -> str:
     return "\n".join(line for line in stripped.splitlines() if line.strip()).strip()
 
 
+def clean_display(text: str) -> str:
+    """Unescape-then-escape for transcript display.
+
+    Models echo escaped entities seen in context ("&quot;"); unescaping
+    first resolves those to characters, re-escaping keeps real markup
+    inert. Idempotent-safe against XSS either way.
+    """
+    import html
+
+    return html.escape(html.unescape(text or ""))
+
+
 def _narrate_executed(executed: list[dict[str, Any]]) -> str:
     """Deterministic evidence-grounded narration (no model needed)."""
     import json
@@ -306,11 +321,14 @@ def _narrate_executed(executed: list[dict[str, Any]]) -> str:
         if not entry.get("ok"):
             parts.append(f"{name} failed.")
             continue
-        summary = entry.get("summary", "")
-        try:
-            payload = json.loads(summary.split(":", 1)[1]) if ":" in summary else {}
-        except (ValueError, IndexError):
-            payload = {}
+        payload = entry.get("output") or {}
+        if not isinstance(payload, dict) or not payload:
+            # Legacy shape: re-parse the truncated summary (may be "?").
+            summary = entry.get("summary", "")
+            try:
+                payload = json.loads(summary.split(":", 1)[1]) if ":" in summary else {}
+            except (ValueError, IndexError):
+                payload = {}
         if name == "data.describe_project" and isinstance(payload, dict):
             records = payload.get("records", [])
             if not records:
@@ -335,6 +353,13 @@ def _narrate_executed(executed: list[dict[str, Any]]) -> str:
             parts.append(f"Catalog search: {payload.get('total', len(results))} result(s). {titles}".rstrip(". ") + ".")
         elif name == "data.validate_dataset" and isinstance(payload, dict):
             parts.append(f"Validation verdict: {payload.get('verdict', '?')}.")
+        elif name == "data.download_dataset" and isinstance(payload, dict):
+            parts.append(
+                f"Downloaded {payload.get('size_bytes', '?')} bytes "
+                f"(sha {str(payload.get('sha256', ''))[:12]}) to {payload.get('sandbox_relpath', '?')}."
+            )
+        elif name == "data.load_into_project" and isinstance(payload, dict):
+            parts.append(f"Loaded layer '{payload.get('layer_name', '?')}' into the project.")
         else:
             parts.append(f"{name} completed.")
     parts.append("See the Results tab for details.")
@@ -415,6 +440,7 @@ __all__ = [
     "ai_status",
     "history_segments",
     "is_affirmation",
+    "clean_display",
     "plan_request",
     "make_confirmation",
 ]

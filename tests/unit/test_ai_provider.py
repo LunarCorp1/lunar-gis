@@ -275,8 +275,9 @@ class TestProviderToolNames:
         from lunar_gis.ui.controller import build_registry
 
         names = [s["name"] for s in registry_tool_schemas(build_registry())]
-        assert len(names) == 20
+        assert len(names) == 21
         assert "analysis.suitability" in names
+        assert "data.load_into_project" in names
         for name in names:
             assert from_provider_name(to_provider_name(name), names) == name
 

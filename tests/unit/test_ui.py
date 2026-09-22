@@ -34,6 +34,7 @@ class TestRegistryWiring:
             "data.check_requirement",
             "data.validate_dataset",
             "data.register_local_file",
+            "data.load_into_project",
             "data.search_catalog",
             "data.download_dataset",
             "data.run_transformation",
@@ -434,6 +435,50 @@ class TestEvidenceFeedback:
         assert _strip_machine_blocks('hello\n```json {"a": 1} ```\nworld') == "hello\nworld"
         assert _strip_machine_blocks("plain text") == "plain text"
         assert _strip_machine_blocks('```json {"a": 1} ```') == ""
+
+    def test_clean_display(self) -> None:
+        from lunar_gis.ui.controller import clean_display
+
+        # Model-echoed entities resolve once (display shows quotes)...
+        assert "&amp;quot;" not in clean_display("a &quot;x&quot;")
+        assert "x" in clean_display("a &quot;x&quot;")
+        # ...while real markup stays inert.
+        assert "<script>" not in clean_display('<script>alert("x")</script>')
+        assert "alert" in clean_display('<script>alert("x")</script>')
+
+    def test_narration_structured_no_placeholders(self) -> None:
+        from lunar_gis.ui.controller import _narrate_executed
+
+        text = _narrate_executed(
+            [
+                {
+                    "tool_name": "data.check_requirement",
+                    "ok": True,
+                    "summary": "s",
+                    "output": {
+                        "availability": "missing",
+                        "fulfillment_kind": "missing",
+                        "missing_reason": "no-layer",
+                    },
+                },
+                {
+                    "tool_name": "data.download_dataset",
+                    "ok": True,
+                    "summary": "s",
+                    "output": {"size_bytes": 1234, "sha256": "abcdef1234567890", "sandbox_relpath": "f.tif"},
+                },
+                {
+                    "tool_name": "data.load_into_project",
+                    "ok": True,
+                    "summary": "s",
+                    "output": {"layer_id": "lid", "layer_name": "malawi"},
+                },
+            ]
+        )
+        assert "?" not in text
+        assert "missing" in text
+        assert "1234 bytes" in text
+        assert "malawi" in text
 
 
 class TestAffirmation:

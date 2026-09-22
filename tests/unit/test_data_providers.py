@@ -286,6 +286,55 @@ class TestProviderTools:
         assert result["total"] == 0
         assert "hint" in result and "simplify" in result["hint"]
 
+    def test_download_verified(self, monkeypatch, tmp_path) -> None:
+        import hashlib
+
+        from lunar_gis.data.adapters import registry as adapter_registry
+
+        body = b"\x00" * 100
+
+        class WriterAdapter:
+            def provider_version(self) -> str:
+                return "1.0"
+
+            def download(self, dataset_id, asset_id, sandbox_dir):
+                import os as os_module
+
+                target = os_module.path.join(sandbox_dir, "f.bin")
+                with open(target, "wb") as handle:
+                    handle.write(body)
+                return True, {
+                    "sandbox_relpath": "f.bin",
+                    "size_bytes": len(body),
+                    "sha256_actual": hashlib.sha256(body).hexdigest(),
+                }
+
+        monkeypatch.setattr(adapter_registry, "get", lambda pid: WriterAdapter())
+        result = download_dataset_handler(
+            {"provider_id": "p", "dataset_id": "d", "asset_id": "a", "workspace_dir": str(tmp_path)}
+        )
+        assert result["ok"] is True
+        assert result["size_bytes"] == 100
+        assert result["sandbox_dir"]
+
+    def test_download_unverified_without_bytes(self, monkeypatch, tmp_path) -> None:
+        from lunar_gis.data.adapters import registry as adapter_registry
+
+        class GhostAdapter:
+            def provider_version(self) -> str:
+                return "1.0"
+
+            def download(self, dataset_id, asset_id, sandbox_dir):
+                _ = (dataset_id, asset_id, sandbox_dir)
+                return True, {"sandbox_relpath": "ghost.bin", "size_bytes": 10, "sha256_actual": "abc"}
+
+        monkeypatch.setattr(adapter_registry, "get", lambda pid: GhostAdapter())
+        result = download_dataset_handler(
+            {"provider_id": "p", "dataset_id": "d", "asset_id": "a", "workspace_dir": str(tmp_path)}
+        )
+        assert result["ok"] is False
+        assert "unverified" in result["error"]
+
 
 class TestImportBoundary:
     def test_no_forbidden_in_base_transport(self) -> None:

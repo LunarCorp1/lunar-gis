@@ -1,4 +1,4 @@
-"""M4-T07 governed data tools: describe/check/validate/register.
+"""M4-T07 governed data tools: describe/check/validate/register/load.
 
 - ``data.describe_project`` v1 (READ): live project → LayerInventory dict.
 - ``data.check_requirement`` v1 (READ): requirement + inventory →
@@ -6,6 +6,8 @@
 - ``data.validate_dataset`` v1 (LOW): subject ref → ValidationReport dict.
 - ``data.register_local_file`` v1 (LOW): sandbox relpath + declared
   schema → DataProvenance record (origin local-file).
+- ``data.load_into_project`` v1 (HIGH): validated sandbox file →
+  project layer (explicit confirmation; project mutation).
 
 Handlers resolve the live project via deferred import (fail-closed
 without QGIS) or accept a serialized inventory mapping. No network,
@@ -102,6 +104,30 @@ REGISTER_LOCAL_FILE_TOOL_SPEC = ToolSpec(
     input_schema=REGISTER_LOCAL_FILE_INPUT_SCHEMA,
     output_schema={"type": "object"},
     description="Register a sandbox file with local-file provenance.",
+)
+
+LOAD_INTO_PROJECT_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "sandbox_dir": {"type": "string"},
+        "sandbox_relpath": {"type": "string"},
+        "layer_name": {"type": "string"},
+    },
+    "required": ["sandbox_dir", "sandbox_relpath"],
+    "additionalProperties": False,
+}
+
+LOAD_INTO_PROJECT_TOOL_SPEC = ToolSpec(
+    name="data.load_into_project",
+    version=ToolVersion(major=1, minor=0, patch=0),
+    risk=ToolRisk.HIGH,
+    handler=None,
+    input_schema=LOAD_INTO_PROJECT_INPUT_SCHEMA,
+    output_schema={"type": "object"},
+    description=(
+        "Validate a sandbox file and add it to the QGIS project as a layer "
+        "(HIGH: project mutation, confirmation required)."
+    ),
 )
 
 
@@ -396,6 +422,56 @@ def register_local_file_handler(input_data: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "provenance_ref": ref, "sandbox_relpath": normalized}
 
 
+def load_into_project_handler(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Validate a sandbox file and add it to the project. Never raises.
+
+    Sandbox-scoped open (safe-join), suffix+magic gate, probe validity
+    check — then and only then ``addMapLayer``. Without QGIS, or for
+    invalid files, fails closed without touching the project.
+    """
+    from lunar_gis.data.adapters.transport import _safe_join as _transport_safe_join
+    from lunar_gis.data.validation_qgis import check_magic, check_suffix
+
+    sandbox_dir = input_data.get("sandbox_dir", "")
+    relpath = input_data.get("sandbox_relpath", "")
+    if not isinstance(sandbox_dir, str) or not sandbox_dir or not os.path.isdir(sandbox_dir):
+        return {"ok": False, "error": "sandbox_dir is not a directory"}
+    target = _transport_safe_join(sandbox_dir, relpath) if isinstance(relpath, str) else None
+    if target is None or not os.path.isfile(target):
+        return {"ok": False, "error": "path escapes sandbox or not a file"}
+    ok_suffix, suffix_detail = check_suffix(target)
+    if not ok_suffix:
+        return {"ok": False, "error": f"suffix-rejected: {suffix_detail}"}
+    ok_magic, magic_detail = check_magic(target)
+    if not ok_magic:
+        return {"ok": False, "error": f"magic-rejected: {magic_detail}"}
+    project = _resolve_project()
+    if project is None:
+        return {"ok": False, "error": "qgis-runtime-unavailable"}
+    try:
+        from qgis.core import QgsRasterLayer, QgsVectorLayer  # type: ignore[import-not-found]
+    except ImportError:
+        return {"ok": False, "error": "qgis-runtime-unavailable"}
+    layer_name = input_data.get("layer_name", "") or os.path.splitext(os.path.basename(target))[0]
+    lower = target.lower()
+    try:
+        if lower.endswith((".tif", ".tiff", ".vrt")):
+            probe = QgsRasterLayer(target, layer_name, "gdal")
+        else:
+            probe = QgsVectorLayer(target, layer_name, "ogr")
+        valid = bool(probe.isValid())
+    except Exception:
+        return {"ok": False, "error": "probe-failed"}
+    if not valid:
+        return {"ok": False, "error": "layer-invalid: QGIS could not open the file"}
+    try:
+        project.addMapLayer(probe)
+        layer_id = probe.id()
+    except Exception:
+        return {"ok": False, "error": "add-to-project-failed"}
+    return {"ok": True, "layer_id": layer_id, "layer_name": layer_name, "source": target}
+
+
 def _utc_now() -> str:
     from datetime import datetime, timezone
 
@@ -408,12 +484,14 @@ def register_data_tools(registry: ToolRegistry) -> None:
         "data.check_requirement": check_requirement_handler,
         "data.validate_dataset": validate_dataset_handler,
         "data.register_local_file": register_local_file_handler,
+        "data.load_into_project": load_into_project_handler,
     }
     specs = (
         DESCRIBE_PROJECT_TOOL_SPEC,
         CHECK_REQUIREMENT_TOOL_SPEC,
         VALIDATE_DATASET_TOOL_SPEC,
         REGISTER_LOCAL_FILE_TOOL_SPEC,
+        LOAD_INTO_PROJECT_TOOL_SPEC,
     )
     for spec in specs:
         registry.register(

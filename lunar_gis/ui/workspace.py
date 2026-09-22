@@ -48,6 +48,7 @@ class LunarGISWorkspace(QWidget):
         self.results_log: list[str] = []
         self.conversation: list[dict[str, str]] = []
         self.pending_high: list[dict[str, Any]] = []
+        self.last_request: str = ""
         self.tabs = QTabWidget(self)
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
@@ -137,18 +138,24 @@ class LunarGISWorkspace(QWidget):
         if ctrl.is_affirmation(request) and self.pending_high:
             self._confirm_pending()
             return
+        self.last_request = request
         plan = ctrl.plan_request(request, self.registry, history=self.conversation)
+        self._render_plan(plan)
+
+    def _render_plan(self, plan: dict[str, Any]) -> None:
         if not plan["ok"]:
             # Hard provider/config error: surface it, never mislabel as offline.
-            self.chat_log.append("<b>AI request failed:</b> " + html.escape(str(plan.get("error", "unknown error"))))
+            self.chat_log.append(
+                "<b>AI request failed:</b> " + ctrl.clean_display(str(plan.get("error", "unknown error")))
+            )
             self.chat_log.append(
                 "<i>Check Settings (API key, model) and connectivity. Offline tools remain available in their tabs.</i>"
             )
             return
-        self.chat_log.append(html.escape(plan["explanation"]))
+        self.chat_log.append(ctrl.clean_display(plan["explanation"]))
         self.conversation.append({"role": "assistant", "text": plan["explanation"]})
         for warning in plan.get("warnings", ()):
-            self.chat_log.append("<i>Note: " + html.escape(str(warning)) + "</i>")
+            self.chat_log.append("<i>Note: " + ctrl.clean_display(str(warning)) + "</i>")
         for entry in plan.get("executed", ()):
             status = "ok" if entry.get("ok") else "failed"
             self.chat_log.append("<code>" + html.escape(str(entry.get("tool_name", "?"))) + ": " + status + "</code>")
@@ -163,19 +170,45 @@ class LunarGISWorkspace(QWidget):
         self.pending_high = list(plan.get("tool_calls", ()))
 
     def _confirm_pending(self) -> None:
-        """Execute pending HIGH-risk proposals via dialog confirmations."""
+        """Execute pending HIGH-risk proposals via dialog confirmations,
+        then run one follow-up planning round so the workflow continues."""
         remaining: list[dict[str, Any]] = []
+        any_ok = False
         for call in self.pending_high:
             name = call.get("tool_name", "?")
             result = self._run(name, call.get("arguments", {}))
             status = "ok" if result.get("ok") else "failed"
-            self.chat_log.append("Confirmed action <code>" + html.escape(name) + ": " + status + "</code>")
+            detail = self._confirm_detail(name, result)
+            self.chat_log.append(
+                "Confirmed action <code>" + html.escape(name) + ": " + status + "</code> — " + html.escape(detail)
+            )
             self._log(f"{name} → {json.dumps(result.get('output', result), default=str)[:2000]}")
-            self.conversation.append({"role": "assistant", "text": f"Confirmed action {name}: {status}."})
+            self.conversation.append({"role": "assistant", "text": f"Confirmed action {name}: {status}. {detail}"})
+            any_ok = any_ok or bool(result.get("ok"))
             if (result.get("error") or "") == "confirmation-declined":
                 remaining.append(call)
                 break
         self.pending_high = remaining
+        if any_ok and self.last_request:
+            follow = ctrl.plan_request(self.last_request, self.registry, history=self.conversation, max_rounds=1)
+            self._render_plan(follow)
+
+    @staticmethod
+    def _confirm_detail(tool_name: str, result: dict[str, Any]) -> str:
+        data = (result.get("output") or {}).get("data", {})
+        if not result.get("ok"):
+            return str(result.get("error", "failed"))
+        if tool_name == "data.download_dataset":
+            return (
+                f"{data.get('size_bytes', '?')} bytes, sha {str(data.get('sha256', ''))[:12]}, "
+                f"{data.get('sandbox_relpath', '?')}"
+            )
+        if tool_name == "data.load_into_project":
+            return f"layer '{data.get('layer_name', '?')}' ({data.get('layer_id', '?')})"
+        if tool_name == "data.run_transformation":
+            outputs = data.get("outputs", [])
+            return f"{len(outputs)} output(s)"
+        return "done"
 
     # ------------------------------------------------------------------
     # Project

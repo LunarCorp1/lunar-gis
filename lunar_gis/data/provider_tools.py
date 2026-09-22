@@ -15,6 +15,7 @@ provider import at module import time) and fail closed offline.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 from typing import Any
@@ -195,6 +196,32 @@ def download_dataset_handler(input_data: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "provider_id": provider_id, "error": f"download-failed: {type(exc).__name__}"}
     if not ok:
         return {"ok": False, "provider_id": provider_id, "error": payload.get("error", "download-failed")}
+    # Post-write verification: "ok" must prove the bytes exist. An
+    # adapter claiming success without materializing the file is a
+    # defect, not a download — fail closed instead of reporting ok.
+    from lunar_gis.data.adapters.transport import _safe_join as _transport_safe_join
+
+    verified_path = _transport_safe_join(sandbox_dir, str(payload.get("sandbox_relpath", "")))
+    verified_bytes = 0
+    verified_sha = ""
+    if verified_path is not None and os.path.isfile(verified_path):
+        try:
+            with open(verified_path, "rb") as handle:
+                digest = hashlib.sha256()
+                while True:
+                    chunk = handle.read(65536)
+                    if not chunk:
+                        break
+                    verified_bytes += len(chunk)
+                    digest.update(chunk)
+            verified_sha = digest.hexdigest()
+        except OSError:
+            verified_bytes = 0
+    expected_sha = str(payload.get("sha256_actual", "") or "").lower()
+    if verified_path is None or verified_bytes == 0:
+        return {"ok": False, "provider_id": provider_id, "error": "download-unverified: no bytes on disk"}
+    if expected_sha and verified_sha != expected_sha:
+        return {"ok": False, "provider_id": provider_id, "error": "download-unverified: checksum mismatch"}
     provenance_ref = ""
     try:
         from lunar_gis.provenance.records import make_record
@@ -210,7 +237,7 @@ def download_dataset_handler(input_data: dict[str, Any]) -> dict[str, Any]:
             provider_version=adapter.provider_version(),
             dataset_id=dataset_id,
             asset_id=asset_id,
-            sha256=str(payload.get("sha256_actual", "")) or None,
+            sha256=verified_sha or None,
             source_url=None,
             tool_invocations=(),
         )
@@ -220,9 +247,10 @@ def download_dataset_handler(input_data: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "provider_id": provider_id,
+        "sandbox_dir": sandbox_dir,
         "sandbox_relpath": payload.get("sandbox_relpath", ""),
-        "size_bytes": payload.get("size_bytes", 0),
-        "sha256": payload.get("sha256_actual", ""),
+        "size_bytes": verified_bytes,
+        "sha256": verified_sha,
         "provenance_ref": provenance_ref,
     }
 

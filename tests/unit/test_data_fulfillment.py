@@ -205,8 +205,33 @@ class TestRegisterTool:
             "data.check_requirement",
             "data.validate_dataset",
             "data.register_local_file",
+            "data.load_into_project",
         ):
             assert registry.has(name)
+
+    def test_load_rejects_bad_sandbox(self) -> None:
+        from lunar_gis.data.data_tools import load_into_project_handler
+
+        assert load_into_project_handler({"sandbox_dir": "/nope", "sandbox_relpath": "a.gpkg"})["ok"] is False
+        assert load_into_project_handler({"sandbox_dir": "/tmp", "sandbox_relpath": "../../evil.gpkg"})["ok"] is False
+
+    def test_load_rejects_executable_offline(self, tmp_path) -> None:
+        from lunar_gis.data.data_tools import load_into_project_handler
+
+        target = tmp_path / "run.exe"
+        target.write_bytes(b"MZ" + b"\x00" * 100)
+        result = load_into_project_handler({"sandbox_dir": str(tmp_path), "sandbox_relpath": "run.exe"})
+        assert result["ok"] is False
+        assert "suffix" in result["error"]
+
+    def test_load_without_qgis_fails_closed(self, tmp_path) -> None:
+        from lunar_gis.data.data_tools import load_into_project_handler
+
+        target = tmp_path / "data.geojson"
+        target.write_text('{"type": "FeatureCollection", "features": []}', encoding="utf-8")
+        result = load_into_project_handler({"sandbox_dir": str(tmp_path), "sandbox_relpath": "data.geojson"})
+        assert result["ok"] is False
+        assert result["error"] == "qgis-runtime-unavailable"
 
 
 class TestImportBoundary:
